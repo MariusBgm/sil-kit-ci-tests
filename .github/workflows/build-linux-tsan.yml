@@ -1,7 +1,7 @@
 name: 'Linux + thread sanitizer'
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "bgm-gh_build_sanitizers" ]
 jobs:
   clang-tsan-debug:
     name: Thread Sanitizer Tests

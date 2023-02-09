@@ -8,16 +8,19 @@ The Vector SIL Kit
 .. image:: https://img.shields.io/badge/documentation-html-blue.svg
    :target: https://vectorgrp.github.io/sil-kit-docs
 
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml
+.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-asan.yml/badge.svg
+   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-asan.yml
+.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-ubsan.yml/badge.svg
+   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-tsan.yml
+.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-tsan.yml/badge.svg
+   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-ubsan.yml
 
-The Vector SIL Kit is an open-source library for connecting Software-in-the-Loop Environments.
+.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-macos.yml/badge.svg
+   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-macos.yml
+.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-win.yml/badge.svg
+   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-win.yml
+
+The Vector SIL Kit is an open-source library for connecting Software-in-the-Loop Environments. 
 This README is intended to provide you with quick start on how to build the Vector SIL Kit.
 
 For documentation on using the Vector SIL Kit, see the HTML documentation,

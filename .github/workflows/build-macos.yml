@@ -2,11 +2,10 @@ name: macOS build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "bgm-gh_build_sanitizers" ]
 
 jobs:
   build-macos:
-    if: ${{ false }} #disabled for now
     runs-on: macos-latest
     environment: public-github-runners
     steps:
