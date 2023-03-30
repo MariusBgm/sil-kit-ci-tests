@@ -15,8 +15,6 @@ The Vector SIL Kit
 .. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-tsan.yml/badge.svg
    :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-linux-ubsan.yml
 
-.. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-macos.yml/badge.svg
-   :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-macos.yml
 .. image:: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-win.yml/badge.svg
    :target: https://github.com/MariusBgm/sil-kit-ci-tests/actions/workflows/build-win.yml
 
