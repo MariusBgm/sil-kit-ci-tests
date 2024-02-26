@@ -229,6 +229,10 @@ struct Middleware
     std::vector<std::string> acceptorUris{}; //!< Explicit list of endpoints this participant will accept connections on.
     //! By default, communication with other participants using the registry as a proxy is enabled.
     bool registryAsFallbackProxy{ true };
+    //! By default, requesting connection of other participants, and honoring these requests by other participants is enabled.
+    bool experimentalRemoteParticipantConnection{ true };
+    //! Timeout for individual connection attempts (TCP, Local-Domain) and handshakes.
+    double connectTimeoutSeconds{5.0};
 };
 
 // ================================================================================

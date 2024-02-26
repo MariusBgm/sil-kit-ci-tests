@@ -6,21 +6,26 @@ Vector SIL Kit Overview
 .. |NetSim| replace:: Network Simulator
 .. |_| unicode:: 0xA0 
    :trim:
-
+.. |CAN-API| replace:: :ref:`CAN / CAN FD<chap:can-service-api>`
+.. |Ethernet-API| replace:: :ref:`Ethernet<chap:ethernet-service-api>`
+.. |Flexray-API| replace:: :ref:`FlexRay<chap:flexray-service-api>`
+.. |LIN-API| replace:: :ref:`LIN<chap:lin-service-api>`
+.. |Lifecycle-API| replace:: :ref:`lifecycle<chap:lifecycle-service-api>`
+.. |Timesync-API| replace:: :ref:`time synchronization<chap:timesync-service-api>`
+.. |Logging-API| replace:: :ref:`logging<chap:logging-service-api>`
 
 The Vector |ProductName| is an open source library for connecting Software-in-the-Loop Environments.
+It provides:
 
-Vector |ProductName| provides 
+* Communication infrastructure for automotive and non-automotive applications
 
-* communication infrastructure for automotive and non-automotive applications
+* Interoperability between any SIL Kit enabled applications
 
-* interoperability between any SIL Kit enabled applications
+* Cross platform communication
 
-* cross platform communication
+* Implemented in C++ w/o platform dependencies
 
-    * implemented in C++ w/o platform dependencies
-
-    * interoperability between Windows, Linux, and other UNIX derivates​
+* Interoperability between Windows, Linux, and other UNIX derivates​
 
 * Stable API and ABI as well as long-term network layer compatibility
 
@@ -29,13 +34,13 @@ Vector |ProductName| provides
 Supported Services
 ------------------
 
-The currently supported services of the |ProductName| consist of the following categories:
+The services currently supported by the |ProductName| consist of the following categories:
 
-* **Vehicle Network Controllers:** CAN / CAN |_| FD, Ethernet, FlexRay, and LIN
-* **Data Publish/Subscribe:** exchange of arbitrary data
-* **RPC Servers/Clients:** for dynamic remote procedure execution
-* **Orchestration:** for lifecycle and time synchronization control
-* **Logging:** for logging messages into a file, standard output, or to other participants
+* **Vehicle Network Controllers:** |CAN-API|, |Ethernet-API|, |Flexray-API|, and |LIN-API|
+* **Data Publish/Subscribe:** topic-based :ref:`publish/subscribe<chap:pubsub-service-api>` mechanism to exchange arbitrary data
+* **RPC Servers/Clients:** for dynamic :ref:`remote procedure execution<chap:rpc-service-api>`
+* **Orchestration:** for |Lifecycle-API| and |Timesync-API| control
+* **Logging:** for |Logging-API| messages into a file, standard output, or to other participants
 
 Vehicle Networks
 ----------------
@@ -75,10 +80,43 @@ A similar configuration file is available for the |ProductName| Registry as well
 * For getting started developing with the |ProductName|, see the :doc:`Developer Guide <../for-developers/developers>`.
 
 
-
-
 ..
   TODO add links to the corresponding sections once they are revamped
+
+
+.. _sec:overview-ecosystem:
+
+The |ProductName| Ecosystem
+---------------------------
+
+Related Projects
+~~~~~~~~~~~~~~~~
+
+One of the design goals of the |ProductName| is to easily connect different third-party tools,
+such as emulators, virtual machines and simulation tools.
+
+The |ProductName| ecosystem comprises the following turn-key solutions:
+
+* The `SIL Kit Adapters for QEMU <https://github.com/vectorgrp/sil-kit-adapters-qemu>`_
+  integrates with QEMU to support co-simulation with emulated targets.
+
+* The `SIL Kit Adapters for TAP devices <https://github.com/vectorgrp/sil-kit-adapters-tap>`_
+  project provides first-class support for TAP devices of the host operating system.
+
+* The `SIL Kit Adapter for SocketCAN <https://github.com/vectorgrp/sil-kit-adapters-vcan>`_
+  can be used to attach a virtual CAN (Controller Area Network) interface (SocketCAN) to a |ProductName| CAN bus.
+
+* The `SIL Kit FMU Importer <https://github.com/vectorgrp/sil-kit-fmu-importer>`_
+  allows to import Functional Mockup Units (FMUs) as SIL Kit participants.
+
+Related Applications
+~~~~~~~~~~~~~~~~~~~~
+
+The |ProductName| ecosystem also offers the following desktop applications:
+
+* The `SIL Kit Dashboard <https://www.vector.com/SIL-Kit-Dashboard/>`_  collects, persists 
+  and displays information from different SIL Kit systems.
+
 
 .. _sec:overview-guiding-principles:
 

@@ -1499,7 +1499,7 @@ auto Participant<SilKitConnectionT>::CreateController(const SilKitServiceTraitCo
     descriptor.SetNetworkType(config.GetNetworkType());
     descriptor.SetServiceId(localEndpoint);
     descriptor.SetServiceType(serviceType);
-    descriptor.SetSupplementalData(std::move(supplementalData));
+    descriptor.SetSupplementalData(supplementalData);
 
     controller->SetServiceDescriptor(std::move(descriptor));
 
@@ -1674,10 +1674,10 @@ void Participant<SilKitConnectionT>::RegisterReplayController(ISimulator* simula
 }
 
 template <class SilKitConnectionT>
-bool Participant<SilKitConnectionT>::ParticiantHasCapability(const std::string& participantName,
-                                                             const std::string& capability) const
+bool Participant<SilKitConnectionT>::ParticipantHasCapability(const std::string& participantName,
+                                                              const std::string& capability) const
 {
-    return _connection.ParticiantHasCapability(participantName, capability);
+    return _connection.ParticipantHasCapability(participantName, capability);
 }
 
 

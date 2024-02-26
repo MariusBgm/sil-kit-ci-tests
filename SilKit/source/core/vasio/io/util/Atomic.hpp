@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Vector Informatik GmbH
+//
+// SPDX-License-Identifier: MIT
+
 #pragma once
 
 
@@ -6,22 +10,6 @@
 
 
 namespace VSilKit {
-
-
-inline auto ExchangeTrueForFalse(std::atomic<bool>& atomic)
-{
-    bool expected{true};
-    const bool desired{false};
-    return atomic.compare_exchange_strong(expected, desired);
-}
-
-
-inline auto ExchangeFalseForTrue(std::atomic<bool>& atomic)
-{
-    bool expected{false};
-    const bool desired{true};
-    return atomic.compare_exchange_strong(expected, desired);
-}
 
 
 template <typename T, typename = std::enable_if_t<std::is_enum<T>::value>>
@@ -56,7 +44,6 @@ public:
 
 namespace SilKit {
 namespace Core {
-using VSilKit::ExchangeFalseForTrue;
 using VSilKit::AtomicEnum;
 } // namespace Core
 } // namespace SilKit

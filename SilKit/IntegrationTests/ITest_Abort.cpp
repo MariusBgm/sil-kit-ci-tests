@@ -105,7 +105,7 @@ TEST_F(ITest_Abort, test_Abort_Paused_Simulation_Sync)
     JoinParticipantThreads(participantThreads_Sync_Coordinated);
 
     // Expect shutdown state, which should happen after the abort handlers are called.
-    for (const auto& participant : monitorParticipants.front().participantStates)
+    for (const auto& participant : monitorParticipants.front().CopyMonitoredParticipantStates())
     {
         if (participant.first != "MonitorParticipant1")
         {
@@ -177,7 +177,7 @@ TEST_F(ITest_Abort, test_Abort_Running_Simulation_Sync)
     JoinParticipantThreads(participantThreads_Sync_Coordinated);
 
     // Expect shutdown state, which should happen after the abort handlers are called.
-    for (const auto& participant : monitorParticipants.front().participantStates)
+    for (const auto& participant : monitorParticipants.front().CopyMonitoredParticipantStates())
     {
         if (participant.first != "MonitorParticipant1")
         {
@@ -204,8 +204,8 @@ TEST_F(ITest_Abort, test_Abort_Stopped_Simulation_Sync)
     // state.
     int size = static_cast<int>(syncParticipants.size() + 1); // include system controller
     int requiredSize = static_cast<int>(syncParticipants.size());
-    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Stopping)).Times(Between(1, size));
-    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Stopped)).Times(Between(0, requiredSize));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Stopping)).Times(Between(0, size));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Stopped)).Times(Between(0, size));
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Running)).Times(Between(0, requiredSize));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Shutdown)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Error)).Times(0);
@@ -218,7 +218,7 @@ TEST_F(ITest_Abort, test_Abort_Stopped_Simulation_Sync)
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Running)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Aborting)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopping)).Times(Between(1, size));
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopped)).Times(Between(0, requiredSize));
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopped)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ShuttingDown)).Times(0);
 
     std::list<TestParticipant> monitorParticipants;
@@ -260,7 +260,7 @@ TEST_F(ITest_Abort, test_Abort_Stopped_Simulation_Sync)
     JoinParticipantThreads(participantThreads_Sync_Coordinated);
 
     // Expect shutdown state, which should happen after the abort handlers are called.
-    for (const auto& participant : monitorParticipants.front().participantStates)
+    for (const auto& participant : monitorParticipants.front().CopyMonitoredParticipantStates())
     {
         if (participant.first != "MonitorParticipant1")
         {
@@ -292,9 +292,9 @@ TEST_F(ITest_Abort, test_Abort_Communication_Ready_Simulation_Sync)
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::CommunicationInitializing))
         .Times(Between(0, requiredParticipantsSize));
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::CommunicationInitialized))
-        .Times(Between(1, size));
-    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::ReadyToRun))
-        .Times(Between(0, requiredParticipantsSize));
+        .Times(Between(0, size));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::ReadyToRun)).Times(Between(0, size));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Running)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Shutdown)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Error)).Times(0);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Invalid)).Times(0);
@@ -305,9 +305,8 @@ TEST_F(ITest_Abort, test_Abort_Communication_Ready_Simulation_Sync)
         .Times(Between(1, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::CommunicationInitialized))
         .Times(Between(1, size));
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ReadyToRun))
-        .Times(Between(0, requiredParticipantsSize));
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Running)).Times(0);
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ReadyToRun)).Times(Between(0, size));
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Running)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Aborting)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopping)).Times(0);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopped)).Times(0);
@@ -343,17 +342,17 @@ TEST_F(ITest_Abort, test_Abort_Communication_Ready_Simulation_Sync)
     // Wait for coordinated to end
     JoinParticipantThreads(participantThreads_Sync_Coordinated);
 
+    monitorParticipants.front().i.stopRequested = true;
+    JoinParticipantThreads(participantThreads_Async_Autonomous);
+
     // Expect shutdown state, which should happen after the abort handlers are called.
-    for (const auto& participant : monitorParticipants.front().participantStates)
+    for (const auto& participant : monitorParticipants.front().CopyMonitoredParticipantStates())
     {
         if (participant.first != "MonitorParticipant1")
         {
             EXPECT_EQ(participant.second, ParticipantState::Shutdown);
         }
     }
-
-    monitorParticipants.front().i.stopRequested = true;
-    JoinParticipantThreads(participantThreads_Async_Autonomous);
 
     StopRegistry();
 }

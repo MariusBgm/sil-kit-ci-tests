@@ -42,7 +42,9 @@ set(GIT_HEAD_FILE "${GIT_DIR}/HEAD")
 set(VERSION_MACROS_HPP ${CMAKE_CURRENT_BINARY_DIR}/version_macros.hpp)
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp)
     message(STATUS "SILKIT re-using deployed version_macros.hpp")
-    set(VERSION_MACROS_HPP ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp)
+    set(VERSION_MACROS_HPP ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp
+        CreateSilKitRegistryWithDashboard.cpp
+        CreateSilKitRegistryWithDashboard.hpp)
 elseif(EXISTS "${GIT_HEAD_FILE}")
     configure_file(
         "MakeVersionMacros.cmake.in"
@@ -71,7 +73,7 @@ install(FILES
     ${VERSION_MACROS_HPP}
     DESTINATION ${INSTALL_INCLUDE_DIR}/silkit/capi
     RENAME SilKitVersionMacros.h
-    COMPONENT bin
+    COMPONENT dev
 )
 
 set(silkitLibType SHARED)
@@ -111,6 +113,9 @@ target_include_directories(I_SilKit_CreateSilKitRegistryImpl
 add_library(O_SilKit_CreateSilKitRegistryImpl OBJECT
     CreateSilKitRegistryImpl.hpp
     CreateSilKitRegistryImpl.cpp
+
+    CreateSilKitRegistryWithDashboard.hpp
+    CreateSilKitRegistryWithDashboard.cpp
 )
 
 target_link_libraries(O_SilKit_CreateSilKitRegistryImpl
@@ -260,13 +265,22 @@ if ((CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     list(JOIN SILKIT_LINK_EXCLUDE_LIBS ":" SILKIT_LINK_EXCLUDE_LIBS)
     # add the excluded libs to the linker command line
     target_link_options(SilKit PRIVATE "-Wl,--exclude-libs=${SILKIT_LINK_EXCLUDE_LIBS}")
+
 endif()
 
- set_target_properties(SilKit PROPERTIES
-     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
-     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
-     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
- )
+set_target_properties(SilKit PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+ ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+ LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+ LIBRARY_OUTPUT_NAME SilKit
+)
+
+if(SILKIT_BUILD_LINUX_PACKAGE)
+    set_target_properties(SilKit PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+endif()
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
@@ -290,19 +304,33 @@ if(NOT SILKIT_BUILD_STATIC)
         TARGETS SilKit
         EXPORT SilKitTargets
         CONFIGURATIONS Release Debug RelWithDebInfo
-        COMPONENT bin
-        DESTINATION ${INSTALL_LIB_DIR}
-        LIBRARY DESTINATION ${INSTALL_LIB_DIR} # for Linux shared object libraries (.so)
-        ARCHIVE DESTINATION ${INSTALL_LIB_DIR} # for static libraries (.lib/.a)
-        RUNTIME DESTINATION ${INSTALL_BIN_DIR} # for executables and dynamic libraries (.dll)
-        PUBLIC_HEADER DESTINATION ${INSTALL_INCLUDE_DIR} # Destination for header files
+        LIBRARY
+            COMPONENT bin
+            DESTINATION ${INSTALL_LIB_DIR}
+            NAMELINK_SKIP
+            LIBRARY DESTINATION ${INSTALL_LIB_DIR} # for Linux shared object libraries (.so)
+            ARCHIVE DESTINATION ${INSTALL_LIB_DIR} # for static libraries (.lib/.a)
+            RUNTIME DESTINATION ${INSTALL_BIN_DIR} # for executables and dynamic libraries (.dll)
+        PUBLIC_HEADER
+            PUBLIC_HEADER DESTINATION ${INSTALL_INCLUDE_DIR} # Destination for header files
+            COMPONENT dev
+    )
+
+    install(
+        TARGETS SilKit
+        EXPORT SilKitTargets
+        CONFIGURATIONS Release Debug RelWithDebInfo
+        LIBRARY
+            COMPONENT dev
+            DESTINATION ${INSTALL_LIB_DIR}
+            NAMELINK_ONLY
     )
 # portable installation  definitions
     install(EXPORT SilKitTargets
         DESTINATION ${INSTALL_LIB_DIR}/cmake/SilKit
         NAMESPACE "SilKit::"
         FILE SilKitTargets.cmake
-        COMPONENT bin
+        COMPONENT dev
     )
 endif()
 # Also install CmakeTargets for MinSizeRel and RelWithDebInfo
@@ -316,7 +344,7 @@ install(
         cmake/SilKitTargets-relwithdebinfo.cmake
     DESTINATION ${INSTALL_LIB_DIR}/cmake/SilKit
     CONFIGURATIONS Release Debug RelWithDebInfo
-    COMPONENT bin
+    COMPONENT dev
 )
 
 #make our local build dir usable for other projects

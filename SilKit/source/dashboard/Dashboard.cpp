@@ -21,28 +21,13 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
 #include "Dashboard.hpp"
 
-#include <chrono>
-
 #include "OatppHeaders.hpp"
-
-#include "silkit/SilKit.hpp"
-#include "silkit/config/IParticipantConfiguration.hpp"
-#include "ILogger.hpp"
-#include "IParticipantInternal.hpp"
-#include "IServiceDiscovery.hpp"
-#include "SetThreadName.hpp"
-
 #include "ParticipantConfiguration.hpp"
-#include "CreateParticipantImpl.hpp"
+#include "SetThreadName.hpp"
+#include "Uri.hpp"
 
-#include "CachingSilKitEventHandler.hpp"
-#include "SilKitEventQueue.hpp"
 #include "DashboardRetryPolicy.hpp"
-#include "DashboardSystemServiceClient.hpp"
-#include "SilKitEventHandler.hpp"
 #include "SilKitToOatppMapper.hpp"
-
-using namespace std::chrono_literals;
 
 namespace SilKit {
 namespace Dashboard {
@@ -50,119 +35,92 @@ namespace Dashboard {
 Dashboard::Dashboard(std::shared_ptr<SilKit::Config::IParticipantConfiguration> participantConfig,
                      const std::string& registryUri)
 {
-    _dashboardParticipant = SilKit::CreateParticipantImpl(participantConfig, "__SilKitDashboard", registryUri);
-    _participantInternal = dynamic_cast<Core::IParticipantInternal*>(_dashboardParticipant.get());
-    _lifecycleService =
-        _dashboardParticipant->CreateLifecycleService({Services::Orchestration::OperationMode::Autonomous});
-    _systemMonitor = _dashboardParticipant->CreateSystemMonitor();
-    _serviceDiscovery = _participantInternal->GetServiceDiscovery();
-    _logger = _participantInternal->GetLogger();
-    _retryPolicy = std::make_shared<DashboardRetryPolicy>(3);
-    OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper);
-    OATPP_COMPONENT(std::shared_ptr<oatpp::network::ClientConnectionProvider>, connectionProvider);
-    auto requestExecutor = oatpp::web::client::HttpRequestExecutor::createShared(connectionProvider, _retryPolicy);
-    auto apiClient = DashboardSystemApiClient::createShared(requestExecutor, objectMapper);
-    auto silKitToOatppMapper = std::make_shared<SilKitToOatppMapper>();
-    auto serviceClient = std::make_shared<DashboardSystemServiceClient>(_logger, apiClient, objectMapper);
-    auto eventHandler = std::make_shared<SilKitEventHandler>(_logger, serviceClient, silKitToOatppMapper);
-    auto eventQueue = std::make_shared<SilKitEventQueue>();
-    _cachingEventHandler = std::make_unique<CachingSilKitEventHandler>(registryUri, _logger, eventHandler, eventQueue);
-
-    _systemMonitor->SetParticipantConnectedHandler([this](auto&& participantInformation) {
-        OnParticipantConnected(participantInformation);
-    });
-    _systemMonitor->SetParticipantDisconnectedHandler([this](auto&& participantInformation) {
-        OnParticipantDisconnected(participantInformation);
-    });
-    _participantStatusHandlerId = _systemMonitor->AddParticipantStatusHandler([this](auto&& participantStatus) {
-        OnParticipantStatusChanged(participantStatus);
-    });
-    _systemStateHandlerId = _systemMonitor->AddSystemStateHandler([this](auto&& systemState) {
-        OnSystemStateChanged(systemState);
-    });
-    _serviceDiscovery->RegisterServiceDiscoveryHandler([this](auto&& discoveryType, auto&& serviceDescriptor) {
-        OnServiceDiscoveryEvent(discoveryType, serviceDescriptor);
-    });
-    _lifecycleDone = _lifecycleService->StartLifecycle();
+    SetParticipantConfigAndRegistryUri(participantConfig, registryUri);
+    Run();
 }
 
 Dashboard::~Dashboard()
 {
-    auto timeout = 10s;
-    if (std::future_status::ready == _runningReachedPromise.get_future().wait_for(timeout))
-    {
-        _lifecycleService->Stop("Stop");
-        _lifecycleDone.wait_for(timeout);
-    }
-    _systemMonitor->RemoveParticipantStatusHandler(_participantStatusHandlerId);
-    _systemMonitor->RemoveSystemStateHandler(_systemStateHandlerId);
-    _retryPolicy->AbortAllRetries();
+    _retry = false;
+    ShutdownParticipantIfRunning();
+    _done.wait();
 }
 
-void Dashboard::OnParticipantConnected(
-    const Services::Orchestration::ParticipantConnectionInformation& participantInformation)
+void Dashboard::SetParticipantConfigAndRegistryUri(
+    std::shared_ptr<SilKit::Config::IParticipantConfiguration> participantConfig, const std::string& registryUri)
 {
-    if (participantInformation.participantName == _participantInternal->GetParticipantName())
-    {
-        return;
-    }
-    {
-        std::lock_guard<decltype(_connectedParticipantsMx)> lock(_connectedParticipantsMx);
-        _connectedParticipants.push_back(participantInformation.participantName);
-    }
-    _cachingEventHandler->OnParticipantConnected(participantInformation);
-}
+    auto participantConfiguration = std::dynamic_pointer_cast<Config::ParticipantConfiguration>(participantConfig);
 
-void Dashboard::OnParticipantDisconnected(
-    const Services::Orchestration::ParticipantConnectionInformation& participantInformation)
-{
-    if (participantInformation.participantName == _participantInternal->GetParticipantName())
+    SilKit::Core::Uri realRegistryUri(registryUri);
+    if (!participantConfiguration->middleware.registryUri.empty())
     {
-        return;
+        realRegistryUri = SilKit::Core::Uri(participantConfiguration->middleware.registryUri);
     }
-    if (LastParticipantDisconnected(participantInformation))
-    {
-        _cachingEventHandler->OnLastParticipantDisconnected();
-    }
-}
 
-void Dashboard::OnParticipantStatusChanged(const Services::Orchestration::ParticipantStatus& participantStatus)
-{
-    if (participantStatus.participantName == _participantInternal->GetParticipantName())
+    if (!participantConfiguration->middleware.enableDomainSockets)
     {
-        if (participantStatus.state == Services::Orchestration::ParticipantState::Running)
+        SilKit::Core::Uri originalRegistryUri(registryUri);
+
+        if (originalRegistryUri.Host() == "0.0.0.0")
         {
-            _runningReachedPromise.set_value();
+            realRegistryUri = SilKit::Core::Uri("127.0.0.1", originalRegistryUri.Port());
         }
-        return;
+        if (originalRegistryUri.Host() == "[::]")
+        {
+            realRegistryUri = SilKit::Core::Uri("[::1]", originalRegistryUri.Port());
+        }
     }
-    _cachingEventHandler->OnParticipantStatusChanged(participantStatus);
+
+    _registryUri = realRegistryUri.EncodedString();
+    participantConfiguration->middleware.registryUri = _registryUri;
+    _participantConfig = participantConfiguration;
 }
 
-void Dashboard::OnSystemStateChanged(Services::Orchestration::SystemState systemState)
+void Dashboard::Run()
 {
-    _cachingEventHandler->OnSystemStateChanged(systemState);
+    auto retryPolicy = std::make_shared<DashboardRetryPolicy>(3);
+    _objectMapper = OATPP_GET_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>);
+    OATPP_COMPONENT(std::shared_ptr<oatpp::network::ClientConnectionProvider>, connectionProvider);
+    auto requestExecutor = oatpp::web::client::HttpRequestExecutor::createShared(connectionProvider, retryPolicy);
+    _apiClient = DashboardSystemApiClient::createShared(requestExecutor, _objectMapper);
+    _silKitToOatppMapper = std::make_shared<SilKitToOatppMapper>();
+    InitParticipant();
+    _done = std::async(std::launch::async, [this]() {
+        SilKit::Util::SetThreadName("SK-Dash-Part");
+        while (true)
+        {
+            _dashboardParticipant->Run();
+            ResetParticipant();
+            if (!_retry)
+            {
+                break;
+            }
+            InitParticipant();
+        }
+    });
+    retryPolicy->AbortAllRetries();
 }
 
-void Dashboard::OnServiceDiscoveryEvent(Core::Discovery::ServiceDiscoveryEvent::Type discoveryType,
-                                        const Core::ServiceDescriptor& serviceDescriptor)
+void Dashboard::InitParticipant()
 {
-    if (serviceDescriptor.GetParticipantName() == _participantInternal->GetParticipantName())
+    std::lock_guard<decltype(_dashboardParticipantMx)> lock(_dashboardParticipantMx);
+    _dashboardParticipant = std::make_unique<DashboardParticipant>(_participantConfig, _registryUri, _objectMapper,
+                                                                   _apiClient, _silKitToOatppMapper);
+}
+
+void Dashboard::ShutdownParticipantIfRunning()
+{
+    std::lock_guard<decltype(_dashboardParticipantMx)> lock(_dashboardParticipantMx);
+    if (_dashboardParticipant)
     {
-        return;
+        _dashboardParticipant->Shutdown();
     }
-    _cachingEventHandler->OnServiceDiscoveryEvent(discoveryType, serviceDescriptor);
 }
 
-bool Dashboard::LastParticipantDisconnected(
-    const Services::Orchestration::ParticipantConnectionInformation& participantInformation)
+void Dashboard::ResetParticipant()
 {
-    std::lock_guard<decltype(_connectedParticipantsMx)> lock(_connectedParticipantsMx);
-    _connectedParticipants.erase(std::remove(_connectedParticipants.begin(), _connectedParticipants.end(),
-                                             participantInformation.participantName),
-                                 _connectedParticipants.end());
-    Services::Logging::Debug(_logger, "Dashboard: {} connected participant(s)", _connectedParticipants.size());
-    return _connectedParticipants.empty();
+    std::lock_guard<decltype(_dashboardParticipantMx)> lock(_dashboardParticipantMx);
+    _dashboardParticipant = nullptr;
 }
 
 } // namespace Dashboard

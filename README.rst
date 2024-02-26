@@ -11,9 +11,9 @@ The Vector SIL Kit
 .. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml/badge.svg
    :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml
 .. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml/badge.svg
    :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml
+.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml/badge.svg
+   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml
 .. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml/badge.svg
    :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml
 
@@ -47,6 +47,14 @@ The SIL Kit ecosystem comprises the following turn-key solutions:
 
 * The `SIL Kit FMU Importer <https://github.com/vectorgrp/sil-kit-fmu-importer>`_
   allows to import Functional Mockup Units (FMUs) as SIL Kit participants.
+
+Related Applications
+--------------------
+
+The SIL Kit ecosystem also offers the following applications:
+
+* The `SIL Kit Dashboard <https://www.vector.com/SIL-Kit-Dashboard/>`_  collects, persists 
+  and displays information from different SIL Kit systems.
 
 Getting Started - GIT Clone
 ----------------------------------------

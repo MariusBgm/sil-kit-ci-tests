@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Vector Informatik GmbH
+//
+// SPDX-License-Identifier: MIT
+
 #pragma once
 
 
@@ -15,8 +19,6 @@ struct ITimer
     virtual ~ITimer() = default;
 
     virtual void SetListener(ITimerListener& listener) = 0;
-
-    virtual auto GetExpiry() const -> std::chrono::steady_clock::time_point = 0;
 
     virtual void AsyncWaitFor(std::chrono::nanoseconds duration) = 0;
 

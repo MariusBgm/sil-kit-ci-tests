@@ -6,13 +6,159 @@ All notable changes to the Vector SIL Kit project shall be documented in this fi
 
 The format is based on `Keep a Changelog (http://keepachangelog.com/en/1.0.0/) <http://keepachangelog.com/en/1.0.0/>`_.
 
-[4.0.38] - 2023-09-19
+
+[4.0.46] - UNRELEASED
+---------------------
+
+Fixed
+~~~~~
+
+- Added the ``*.manifest`` files to the source distribution. Building from the ``SilKit-Source``
+  directory in the distributed ``.zip`` files was broken.
+
+- Update ``yaml-cpp`` to version 0.8.0 to fix linker errors caused by a missing symbol.
+
+- The system controller utility now logs parts of the command line output using the logger object
+  of the participant.
+
+Added
+~~~~~
+
+- Added a ``--log`` option to the system controller utility which cannot be used together with the
+  ``--configuration`` option. It provides a shortcut to set the log level of the utility.
+
+- Utilities: prepare the registry for handling multiple simulations
+
+
+[4.0.45] - 2024-02-06
+---------------------
+
+Fixed
+~~~~~
+
+- Registry failed to start correctly, if the dashboard is enabled, but the registry is letting the
+  system determine the listening port, e.g., when using a URI like ``silkit://localhost:0``.
+
+Changed
+~~~~~~~
+
+- Add links to API sections in the documentation overview
+
+
+Added
+~~~~~
+
+- RPC usage example with lifecycle
+
+- Windows: Utilities and demos are now compiled with a manifest that sets the active codepage to UTF-8.
+  The required commands to change the output codepage of the Windows console in ``cmd`` or PowerShell
+  are documented in a new FAQ entry.
+
+
+[4.0.44] - 2024-01-22
+---------------------
+
+Fixed
+~~~~~
+
+- Changing the TCP send and receive buffer size failed on Windows
+
+Added
+~~~~~
+
+- Links to related SIL Kit projects in documentation and github Readme
+
+
+[4.0.43] - 2023-12-12
+---------------------
+
+Fixed
+~~~~~
+
+- Dashboard can be enabled using CLI arguments
+- Demos did not terminate when simulation is aborted (AbortSimulation)
+- Fix order of debug log message parameters
+
+
+[4.0.42] - 2023-11-29
+---------------------
+
+Changed
+~~~~~~~
+
+- LIN Demo: Adapted the schedule of the LIN Master and disallowed sending while in wrong controller state.
+
+
+[4.0.41] - 2023-11-28
+---------------------
+
+Fixed
+~~~~~
+
+- Potential deadlock when switching to virtual time-synchronization while replay is in use
+
+
+[4.0.40] - 2023-11-27
 ---------------------
 
 Added
 ~~~~~
 
+- Allow configuration of the connection timeout (``Middleware/ConnectTimeoutSeconds``)
+
+Changed
+~~~~~~~
+
+- Improved the documentation of Data Pub/Sub controllers
+- Improved the documentation of RPC controllers
+
+Fixed
+~~~~~
+
+- The LIN demo does not skip the first entry (sending frame 16) on all but the first iteration through the schedule anymore.
+- The name of the domain-socket used by the registry will use the hostname passed in the listen URI, not the resolved IP address (if any), for generating the name of the domain-socket.
+- When mixing autonomous participants without time-synchronization, and participants with time-synchronization,
+  the timestamps for messages received before the virtual time is started, is now the 'invalid' timestamp value,
+  normally used by participants without time-synchronization.
+- Reworked the pause/continue logic such that it pauses the virtual time synchronization without blocking the I/O thread.
+
+
+[4.0.39] - 2023-11-14
+---------------------
+
+Fixed
+~~~~~
+
+- Replaced remaining mentions of integrators with users.
+
+Added
+~~~~~
+
+- Usage examples for tracing and replay.
+- Timeouts per connection attempt.
+- Two-sided connection establishment: Allow direct connections, even if connections are only possible in one direction.
+
+
+[4.0.38] - 2023-11-02
+---------------------
+
+Fixed
+~~~~~
+
+- The dashboard now handles AbortSimulation.
+- The dashboard resolves the registry IP address if needed.
+
+
+Added
+~~~~~
+
 - Reintroduced build requirements to documentation
+
+Changed
+~~~~~~~
+
+- Consolidate SIL Kit tests into four executables
+
 
 [4.0.37] - 2023-10-17
 ---------------------
@@ -4779,7 +4925,7 @@ Removed
     - removed FastRtps specific integration tests.
     - API: removed deprecated `ib::CreateFastRtpsComAdapter` and `ib::CreateVAsioComAdapter`.
       Users should use the generic :cpp:func:`CreateComAdapter<ib::CreateComAdapter()>`,
-      refer to :ref:`changelog-outdated-reference` (``sec:mwcfg-vasio``).
+      refer to :ref:`changelog-outdated-reference`.
     - ConfigBuilder: removed FastRtps configuration mechanism: `ib::cfg::ConfigBuilder::ConfigureFastRtps`.
 
   
@@ -5039,10 +5185,10 @@ the removal of ``ComAdapter::SendIbMessage`` methods.
 Changed
 ~~~~~~~
 
-.. admonition:: Note: the FastRTPS middleware is now deprecated
-  
-   See :ref:`sec:mwcfg` for migration instructions.
+.. admonition:: Note:
 
+   The FastRTPS middleware is now deprecated
+  
 - The middleware `FastRTPS` is now marked as deprecated.
   This middleware will be removed in the future.
   The middleware specific `CreateFastRtpsComAdapter` API has been

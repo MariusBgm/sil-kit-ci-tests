@@ -27,6 +27,7 @@ include(SilKitInstall)
 
 add_executable(sil-kit-monitor
     PassiveSystemMonitor.cpp
+    $<$<CXX_COMPILER_ID:MSVC>: "${CMAKE_CURRENT_SOURCE_DIR}/../utilities.manifest" >
 )
 
 # Group this demo project into a folder
@@ -55,5 +56,5 @@ endif()
 
 install(TARGETS sil-kit-monitor
     RUNTIME DESTINATION ${INSTALL_BIN_DIR}
-    COMPONENT bin
+    COMPONENT utils
 )

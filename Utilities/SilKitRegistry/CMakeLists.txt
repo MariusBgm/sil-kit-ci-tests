@@ -40,6 +40,8 @@ add_executable(sil-kit-registry
 
     WindowsServiceMain.hpp
     WindowsServiceMain.cpp
+
+    $<$<CXX_COMPILER_ID:MSVC>: "${CMAKE_CURRENT_SOURCE_DIR}/../utilities.manifest" >
 )
 
 # Group this demo project into a folder
@@ -57,7 +59,7 @@ target_link_libraries(sil-kit-registry
     I_SilKit_Util
 
     S_SilKitImpl
-    S_SilKit_Dashboard
+    O_SilKit_Dashboard
 
     O_SilKitRegistry_Config
 )
@@ -76,5 +78,5 @@ endif()
 
 install(TARGETS sil-kit-registry
     RUNTIME DESTINATION ${INSTALL_BIN_DIR}
-    COMPONENT bin
+    COMPONENT utils
 )

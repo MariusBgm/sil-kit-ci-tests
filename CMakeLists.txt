@@ -47,6 +47,22 @@ option(SILKIT_ENABLE_TRACING_INSTRUMENTATION "Enable tracing instrumentation (_S
 option(SILKIT_LINK_LLD "Use the lld linker for SIL KIT" OFF)
 option(SILKIT_USE_SYSTEM_LIBRARIES "Use the libraries installed on the system for third party dependencies" OFF)
 option(SILKIT_BUILD_REPRODUCIBLE "Creates a reproducible build by ommiting timestamps/unique build ids" ON)
+option(SILKIT_BUILD_LINUX_PACKAGE "Creates SILKIT builds suitable for package managers in Linux Distributions (.deb)" OFF)
+
+if(SILKIT_BUILD_LINUX_PACKAGE)
+
+    message(NOTICE "-- Force Setting variables due to SILKIT_BUILD_LINUX_PACKAGE")
+
+    message(NOTICE "  * SILKIT_BUILD_REPRODUCIBLE   OFF")
+    set(SILKIT_BUILD_REPRODUCIBLE OFF CACHE BOOL "Force SILKIT_BUILD_REPRODUCIBLE OFF due to SILKIT_BUILD_LINUX_PACKAGE" FORCE)
+
+    message(NOTICE "  * SILKIT_USE_SYSTEM_LIBRARIES ON")
+    set(SILKIT_USE_SYSTEM_LIBRARIES ON CACHE BOOL "Force SILKIT_USE_SYSTEM_LIBRARIES ON due to SILKIT_BUILD_LINUX_PACKAGE" FORCE)
+
+    message(NOTICE "  * SILKIT_BUILD_DASHBOARD      OFF")
+    set(SILKIT_BUILD_DASHBOARD OFF CACHE BOOL "Force SILKIT_BUILD_DASHBOARD OFF due to SILKIT_BUILD_REPRODUCIBLE" FORCE)
+
+endif()
 
 
 set(CMAKE_C_VISIBILITY_PRESET hidden)
@@ -123,6 +139,7 @@ set(SILKIT_SYMBOLS_DIR "${SILKIT_SYMBOLS_DIR_BASE}/${SILKIT_SYMBOLS_DIR_NAME}")
 ###############################################################################
 # Dependencies
 add_subdirectory(ThirdParty)
+silkit_add_third_party_packages()
 
 # Globally set the warning compile options AFTER including ThirdParty
 silkit_enable_warnings(${SILKIT_WARNINGS_AS_ERRORS})
@@ -183,6 +200,7 @@ if(SILKIT_INSTALL_SOURCE)
             PATTERN *.txt.in
             PATTERN *.md
             PATTERN *.xml
+            PATTERN *.manifest
         REGEX "/ci/.*" EXCLUDE
         REGEX "/ci$" EXCLUDE
         REGEX "\.git$" EXCLUDE
@@ -265,6 +283,8 @@ set(CPACK_ARCHIVE_SOURCE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSIO
 set(CPACK_ARCHIVE_DOCS_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-Docs")
 set(CPACK_COMPONENT_UNSPECIFIED_DISABLED ON)
 set(CPACK_COMPONENTS_ALL "bin")
+list(APPEND CPACK_COMPONENTS_ALL "dev")
+list(APPEND CPACK_COMPONENTS_ALL "utils")
 
 
 if(SILKIT_BUILD_DOCS)
@@ -279,3 +299,5 @@ include(CPack)
 cpack_add_component(docs DISPLAY_NAME "SIL Kit Documentation")
 cpack_add_component(source DISPLAY_NAME "SIL Kit Sources")
 cpack_add_component(bin DISPLAY_NAME "SIL Kit Binaries")
+cpack_add_component(dev DISPLAY_NAME "SIL Kit Headers")
+cpack_add_component(utils DISPLAY_NAME "SIL Kit Utility Tools")

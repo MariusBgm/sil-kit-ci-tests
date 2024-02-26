@@ -49,6 +49,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #include "IMessageReceiver.hpp"
 
 #include "VAsioConnection.hpp"
+#include "VAsioConstants.hpp"
 #include "MockParticipant.hpp" // for DummyLogger
 #include "VAsioSerdes.hpp"
 #include "SerializedMessage.hpp"
@@ -97,11 +98,11 @@ struct MockSilKitMessageReceiver
 
 struct MockVAsioPeer
     : public IVAsioPeer
-    , public IServiceEndpoint
 {
     VAsioPeerInfo _peerInfo;
     ServiceDescriptor _serviceDescriptor;
     ProtocolVersion _protocolVersion;
+    std::string _simulationName;
 
     MockVAsioPeer()
     {
@@ -116,24 +117,27 @@ struct MockVAsioPeer
 
         ON_CALL(*this, GetLocalAddress()).WillByDefault(Return("127.0.0.1"));
         ON_CALL(*this, GetRemoteAddress()).WillByDefault(Return("127.0.0.1"));
+        ON_CALL(*this, GetSimulationName()).WillByDefault(ReturnRef(_simulationName));
         ON_CALL(*this, GetInfo()).WillByDefault(ReturnRef(_peerInfo));
         ON_CALL(*this, GetServiceDescriptor()).WillByDefault(ReturnRef(_serviceDescriptor));
         ON_CALL(*this, GetProtocolVersion()).WillByDefault(Return(_protocolVersion));
     }
 
-    // IVasioPeer
+    // IVAsioPeer
     MOCK_METHOD(void, SendSilKitMsg, (SerializedMessage), (override));
     MOCK_METHOD(void, Subscribe, (VAsioMsgSubscriber), (override));
     MOCK_METHOD(const VAsioPeerInfo&, GetInfo, (), (const, override));
     MOCK_METHOD(void, SetInfo, (VAsioPeerInfo), (override));
     MOCK_METHOD(std::string, GetRemoteAddress, (), (const, override));
     MOCK_METHOD(std::string, GetLocalAddress, (), (const, override));
+    MOCK_METHOD(void, SetSimulationName, (const std::string&), (override));
+    MOCK_METHOD(const std::string&, GetSimulationName, (), (const, override));
     MOCK_METHOD(void, StartAsyncRead, (), (override));
     MOCK_METHOD(void, SetProtocolVersion, (ProtocolVersion), (override));
     MOCK_METHOD(ProtocolVersion, GetProtocolVersion, (), (const, override));
-    MOCK_METHOD(void, DrainAllBuffers, (), (override));
+    MOCK_METHOD(void, Shutdown, (), (override));
 
-    // IServiceEndpoint
+    // IServiceEndpoint (via IVAsioPeer)
     MOCK_METHOD(void, SetServiceDescriptor, (const ServiceDescriptor& serviceDescriptor), (override));
     MOCK_METHOD(const ServiceDescriptor&, GetServiceDescriptor, (), (override, const));
 };
@@ -222,7 +226,7 @@ TEST_F(Test_VAsioConnection, unsupported_version_reply_from_registry_should_thro
     reply.status = ParticipantAnnouncementReply::Status::Failed;
 
     // a failed connection to a registry is fatal
-    _from._peerInfo.participantId = VAsioConnection::RegistryParticipantId;
+    _from._peerInfo.participantId = REGISTRY_PARTICIPANT_ID;
 
     SerializedMessage message(reply);
     EXPECT_THROW(
@@ -235,7 +239,7 @@ TEST_F(Test_VAsioConnection, supported_version_reply_from_registry_must_not_thro
     ParticipantAnnouncementReply reply{};
     reply.status = ParticipantAnnouncementReply::Status::Success;
 
-    _from._peerInfo.participantId = VAsioConnection::RegistryParticipantId;
+    _from._peerInfo.participantId = REGISTRY_PARTICIPANT_ID;
 
     SerializedMessage message(reply);
     EXPECT_NO_THROW(

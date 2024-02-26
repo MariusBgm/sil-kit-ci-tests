@@ -117,6 +117,7 @@ inline MessageBuffer& operator<<(MessageBuffer& buffer, const ParticipantAnnounc
         buffer
             << announcement.messageHeader
             << announcement.peerInfo
+            << announcement.simulationName
             ;
     }
 
@@ -135,8 +136,14 @@ inline MessageBuffer& operator>>(MessageBuffer& buffer, ParticipantAnnouncement&
         //  default
         buffer
             >> announcement.messageHeader
-            >> announcement.peerInfo
-            ;
+            >> announcement.peerInfo;
+
+        if (buffer.RemainingBytesLeft() == 0)
+        {
+            return buffer;
+        }
+
+        buffer >> announcement.simulationName;
     }
     return buffer;
 }
@@ -164,7 +171,6 @@ inline MessageBuffer& operator>>(MessageBuffer& buffer, ParticipantAnnouncementR
     //Backward compatibility
     if (buffer.GetProtocolVersion() == ProtocolVersion{3,0})
     {
-        buffer.SetProtocolVersion({3,0});
         DeserializeV30(buffer, reply);
     }
     else
@@ -186,7 +192,7 @@ inline MessageBuffer& operator>>(MessageBuffer& buffer, ParticipantAnnouncementR
 inline MessageBuffer& operator<<(MessageBuffer& buffer, const KnownParticipants& participants)
 {
     //Backward compatibility with legacy peers
-    if (buffer.GetProtocolVersion() == ProtocolVersion{3,0})
+    if (buffer.GetProtocolVersion() == ProtocolVersion{3, 0})
     {
         SerializeV30(buffer, participants);
     }
@@ -286,17 +292,19 @@ inline MessageBuffer& operator>>(MessageBuffer& buffer, ProxyMessage& out)
 inline MessageBuffer& operator<<(MessageBuffer& buffer, const RemoteParticipantConnectRequest& msg)
 {
 	buffer
-		<< msg.peerUnableToConnect
-		<< msg.connectTargetPeer
-		;
+        << msg.messageHeader
+		<< msg.requestOrigin
+        << msg.requestTarget
+        << msg.status;
     return buffer;
 }
 inline MessageBuffer& operator>>(MessageBuffer& buffer, RemoteParticipantConnectRequest& out)
 {
 	buffer
-		>> out.peerUnableToConnect
-		>> out.connectTargetPeer
-		;
+        >> out.messageHeader
+		>> out.requestOrigin
+        >> out.requestTarget
+        >> out.status;
     return buffer;
 }
 

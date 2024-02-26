@@ -153,7 +153,7 @@ struct DummyVAsioPeerBase : IVAsioPeer
         throw MethodNotImplementedError{};
     }
 
-    void DrainAllBuffers() final
+    void Shutdown() final
     {
         throw MethodNotImplementedError{};
     }
@@ -164,6 +164,28 @@ struct DummyVAsioPeerBase : IVAsioPeer
     }
 
     auto GetProtocolVersion() const -> ProtocolVersion final
+    {
+        throw MethodNotImplementedError{};
+    }
+
+    void SetSimulationName(const std::string&) final
+    {
+        throw MethodNotImplementedError{};
+    }
+
+    auto GetSimulationName() const -> const std::string& final
+    {
+        throw MethodNotImplementedError{};
+    }
+
+    // IServiceEndpoint
+
+    void SetServiceDescriptor(const ServiceDescriptor&) override
+    {
+        throw MethodNotImplementedError{};
+    }
+
+    auto GetServiceDescriptor() const -> const ServiceDescriptor& override
     {
         throw MethodNotImplementedError{};
     }

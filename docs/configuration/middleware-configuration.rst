@@ -1,4 +1,6 @@
-.. _sec:mwcfg:
+.. _sec:cfg-participant-middleware:
+
+.. |NormalOperationNotice| replace:: It is *not* required to set this field under normal circumstances.
 
 ===================================================
 Middleware Configuration
@@ -34,7 +36,7 @@ running on 'localhost' listening on port 8500. These values can be changed via t
       TcpSendBufferSize: 1024
       TcpReceiveBufferSize: 1024
       RegistryAsFallbackProxy: false
-
+      ConnectTimeoutSeconds: 5.0
 
 .. list-table:: Middleware Configuration
    :widths: 15 85
@@ -70,11 +72,16 @@ running on 'localhost' listening on port 8500. These values can be changed via t
        field exists to support more complicated network setups, where the
        listening ports of the participant must have a known, fixed port number
        and address.
-       It is *not* required to set this field under normal circumstances.
+       |NormalOperationNotice|
 
    * - RegistryAsFallbackProxy
      - Disable using the registry as a proxy for participant-to-participant
        communication as a fallback, if the direct connection attempts fail.
        The feature is enabled by default and can be disabled explicitly via this
        field.
+       |NormalOperationNotice|
 
+   * - ConnectTimeoutSeconds
+     - The timeout (in seconds) until a connection attempt is aborted or a handshake is considered failed.
+       This timeout applies to each attempt (TCP, Local-Domain) individually.
+       |NormalOperationNotice|

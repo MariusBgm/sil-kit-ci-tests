@@ -33,6 +33,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #include <map>
 
 #include "ILogger.hpp"
+#include "VAsioConstants.hpp"
 #include "VAsioPeer.hpp"
 #include "VAsioProxyPeer.hpp"
 #include "Filesystem.hpp"
@@ -41,7 +42,21 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #include "Assert.hpp"
 #include "TransformAcceptorUris.hpp"
 
+#include "ConnectPeer.hpp"
 #include "util/TracingMacros.hpp"
+
+#include "asio.hpp"
+
+
+#if SILKIT_ENABLE_TRACING_INSTRUMENTATION_VAsioConnection
+#    define SILKIT_TRACE_METHOD_(logger, ...) SILKIT_TRACE_METHOD(logger, __VA_ARGS__)
+#else
+#    define SILKIT_TRACE_METHOD_(...)
+#endif
+
+
+namespace Log = SilKit::Services::Logging;
+
 
 using namespace std::chrono_literals;
 namespace fs = SilKit::Filesystem;
@@ -53,23 +68,23 @@ auto printableName(const std::string& participantName) -> std::string
     std::string safeName;
     for (const auto& ch : participantName)
     {
-        if (std::isalnum(ch))
+        // do not use std::isalnum, as it may sensitive to the current locale
+        const bool isAlphaNumeric{('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ('0' <= ch && ch <= '9')
+                                  || (ch == '_' || ch == '-' || ch == '.' || ch == '~')};
+
+        if (isAlphaNumeric)
         {
             safeName.push_back(ch);
         }
         else
         {
-            safeName += fmt::format("{:x}", static_cast<unsigned char>(ch));
+            safeName += fmt::format("{:02X}", static_cast<unsigned char>(ch));
         }
     }
     return safeName;
 }
 
 //Debug  print of given peer infos
-auto printUris(const SilKit::Core::VAsioPeerInfo& info)
-{
-    return fmt::format("{}", fmt::join(info.acceptorUris, ", "));
-}
 
 auto printUris(const std::vector<std::string>& uris)
 {
@@ -129,20 +144,6 @@ auto makeLocalPeerInfo(const std::string& name, SilKit::Core::ParticipantId id, 
     return pi;
 }
 
-bool connectWithRetry(SilKit::Core::VAsioPeer* peer, const SilKit::Core::VAsioPeerInfo& pi, size_t connectAttempts)
-{
-    for (auto i = 0u; i < connectAttempts; i++)
-    {
-        bool success = false;
-        std::stringstream attemptedUris;
-        peer->Connect(pi, attemptedUris, success);
-        if (success)
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds{100});
-    }
-    return false;
-}
-
 auto selectBestEndpointFromResolverResults(const std::vector<asio::ip::tcp::endpoint>& resolverResults)
     -> asio::ip::tcp::endpoint
 {
@@ -177,66 +178,96 @@ auto selectBestEndpointFromResolverResults(const std::vector<asio::ip::tcp::endp
     return endpointsByPenalty.begin()->second;
 }
 
-auto GetCurrentCapabilities(const SilKit::Config::ParticipantConfiguration& participantConfiguration) -> std::string
+
+auto MakeCapabilitiesFromConfiguration(const SilKit::Config::ParticipantConfiguration& participantConfiguration)
+    -> SilKit::Core::VAsioCapabilities
 {
     SilKit::Core::VAsioCapabilities capabilities;
+
+    capabilities.AddCapability(SilKit::Core::Capabilities::AutonomousSynchronous);
 
     if (participantConfiguration.middleware.registryAsFallbackProxy)
     {
         capabilities.AddCapability(SilKit::Core::Capabilities::ProxyMessage);
     }
 
-    capabilities.AddCapability(SilKit::Core::Capabilities::AutonomousSynchronous);
-    capabilities.AddCapability(SilKit::Core::Capabilities::RequestParticipantConnection);
+    if (participantConfiguration.middleware.experimentalRemoteParticipantConnection)
+    {
+        capabilities.AddCapability(SilKit::Core::Capabilities::RequestParticipantConnection);
+    }
 
+    return capabilities;
+}
+
+auto MakeCapabilitiesStringFromConfiguration(const SilKit::Config::ParticipantConfiguration& participantConfiguration)
+    -> std::string
+{
+    auto capabilities{MakeCapabilitiesFromConfiguration(participantConfiguration)};
     return capabilities.ToCapabilitiesString();
 }
 
-bool PeerHasCapability(const SilKit::Core::VAsioPeerInfo& peerInfo, const SilKit::Core::CapabilityLiteral& capability)
+
+auto MakeAsioSocketOptionsFromConfiguration(const SilKit::Config::ParticipantConfiguration& participantConfiguration)
+    -> SilKit::Core::AsioSocketOptions
 {
-    SilKit::Core::VAsioCapabilities capabilities{peerInfo.capabilities};
-    return capabilities.HasCapability(capability);
+    SilKit::Core::AsioSocketOptions socketOptions{};
+    socketOptions.tcp.quickAck = participantConfiguration.middleware.tcpQuickAck;
+    socketOptions.tcp.noDelay = participantConfiguration.middleware.tcpNoDelay;
+    socketOptions.tcp.sendBufferSize = participantConfiguration.middleware.tcpSendBufferSize;
+    socketOptions.tcp.receiveBufferSize = participantConfiguration.middleware.tcpReceiveBufferSize;
+
+    return socketOptions;
 }
+
+
+auto GetConnectTimeoutSeconds(const SilKit::Config::ParticipantConfiguration& config) -> std::chrono::milliseconds
+{
+    std::chrono::duration<double> seconds{config.middleware.connectTimeoutSeconds};
+    auto milliseconds{std::chrono::duration_cast<std::chrono::milliseconds>(seconds)};
+    return std::max(100ms, milliseconds);
+}
+
+
+auto GetRegistryConnectTimeout(const SilKit::Config::ParticipantConfiguration& config) -> std::chrono::milliseconds
+{
+    return GetConnectTimeoutSeconds(config);
+}
+
+auto GetRegistryHandshakeTimeout(const SilKit::Config::ParticipantConfiguration& config) -> std::chrono::milliseconds
+{
+    return GetConnectTimeoutSeconds(config);
+}
+
+auto GetParticipantHandshakeTimeout(const SilKit::Config::ParticipantConfiguration& config) -> std::chrono::milliseconds
+{
+    return GetConnectTimeoutSeconds(config);
+}
+
+auto MakeConnectKnownParticipantsSettings(const SilKit::Config::ParticipantConfiguration& config)
+    -> SilKit::Core::ConnectKnownParticipantsSettings
+{
+    SilKit::Core::ConnectKnownParticipantsSettings settings;
+    settings.directConnectTimeout = GetConnectTimeoutSeconds(config);
+    settings.remoteConnectRequestTimeout = GetConnectTimeoutSeconds(config);
+    return settings;
+}
+
+auto MakeRemoteConnectionManagerSettings(const SilKit::Config::ParticipantConfiguration& config)
+    -> SilKit::Core::RemoteConnectionManagerSettings
+{
+    SilKit::Core::RemoteConnectionManagerSettings settings;
+    settings.connectTimeout = GetConnectTimeoutSeconds(config);
+    return settings;
+}
+
 
 } // namespace
 
-namespace std {
-inline std::ostream& operator<< (std::ostream& out,
-    const asio::generic::stream_protocol::socket& sock)
-{
-    const auto local_family = asio::local::stream_protocol{}.family();
-    const auto ep = sock.local_endpoint();
-    if (ep.protocol().family() == asio::ip::tcp::v4().family()
-        || ep.protocol().family() == asio::ip::tcp::v6().family())
-    {
-        //we have an actual remote end
-        auto remote_ep = sock.remote_endpoint();
-        out << reinterpret_cast<const asio::ip::tcp::endpoint& >(remote_ep);
-    }
-    else if (ep.protocol().family() == local_family)
-    {
-        // The underlying sockaddr_un contains the path, zero terminated.
-        const auto* data = static_cast<const char*>(ep.data()->sa_data);
-        out << '"' << data << '"';
-    }
-    else
-    {
-        out << "Unknown Endpoint family=" << ep.protocol().family();
-    }
-    return out;
-}
-} //end namespace std
-
-MAKE_FORMATTER(asio::generic::stream_protocol::socket);
 
 namespace SilKit {
 namespace Core {
 
 namespace tt = Util::tuple_tools;
-
-template <class T> struct Zero { using Type = T; };
-
-using asio::ip::tcp;
 
 VAsioConnection::VAsioConnection(
     IParticipantInternal* participant,
@@ -248,18 +279,13 @@ VAsioConnection::VAsioConnection(
     , _participantName{std::move(participantName)}
     , _participantId{participantId}
     , _timeProvider{timeProvider}
+    , _capabilities{MakeCapabilitiesFromConfiguration(_config)}
+    , _ioContext{MakeAsioIoContext(MakeAsioSocketOptionsFromConfiguration(_config))}
+    , _connectKnownParticipants{*_ioContext, *this, *this, MakeConnectKnownParticipantsSettings(_config)}
+    , _remoteConnectionManager{*this, MakeRemoteConnectionManagerSettings(_config)}
     , _version{version}
     , _participant{participant}
 {
-    _hashToParticipantName.insert(std::pair<uint64_t, std::string>(SilKit::Util::Hash::Hash(_participantName), _participantName));
-
-    AsioSocketOptions socketOptions{};
-    socketOptions.tcp.quickAck = _config.middleware.tcpQuickAck;
-    socketOptions.tcp.noDelay = _config.middleware.tcpNoDelay;
-    socketOptions.tcp.sendBufferSize = _config.middleware.tcpSendBufferSize;
-    socketOptions.tcp.receiveBufferSize = _config.middleware.tcpReceiveBufferSize;
-
-    _ioContext = MakeAsioIoContext(socketOptions);
 }
 
 VAsioConnection::~VAsioConnection()
@@ -281,22 +307,16 @@ VAsioConnection::~VAsioConnection()
 
             for (const auto& peer : _peers)
             {
-                peer->DrainAllBuffers();
+                peer->Shutdown();
             }
         }
 
-        {
-            std::unique_lock<decltype(_pendingRemoteMx)> lock{_pendingRemoteMx};
-
-            for (const auto& connection : _pendingRemoteConnections)
-            {
-                connection.second.timer->Shutdown();
-            }
-        }
+        _connectKnownParticipants.Shutdown();
+        _remoteConnectionManager.Shutdown();
 
         if (_registry != nullptr)
         {
-            _registry->DrainAllBuffers();
+            _registry->Shutdown();
         }
     });
 
@@ -311,7 +331,14 @@ VAsioConnection::~VAsioConnection()
 void VAsioConnection::SetLogger(Services::Logging::ILogger* logger)
 {
     _logger = logger;
+
     _ioContext->SetLogger(*_logger);
+    _connectKnownParticipants.SetLogger(*_logger);
+}
+
+auto VAsioConnection::GetLogger() -> SilKit::Services::Logging::ILogger*
+{
+    return _logger;
 }
 
 auto VAsioConnection::PrepareAcceptorEndpointUris(const std::string & connectUri) -> std::vector<std::string>
@@ -405,7 +432,7 @@ void VAsioConnection::OpenLocalAcceptors(const std::vector<std::string>& accepto
             }
             catch (const std::exception& exception)
             {
-                Services::Logging::Error(_logger, "Unable to accept local domain connections on {}:{}: {}", uri.Path(),
+                Services::Logging::Error(_logger, "Unable to accept local domain connections on '{}': {}", uri.Path(),
                                          exception.what());
             }
         }
@@ -424,6 +451,29 @@ void VAsioConnection::JoinSimulation(std::string connectUri)
 {
     SILKIT_ASSERT(_logger);
 
+    _simulationName = Uri{connectUri}.Path();
+    _allowAnySimulationName = false;
+
+    // Open all configured acceptors and start accepting connections.
+    OpenParticipantAcceptors(connectUri);
+
+    // Connects this participant to the registry. Each connection attempt has its own timeout.
+    ConnectParticipantToRegistryAndStartIoWorker(connectUri);
+
+    // Wait for a fixed amount of time for the registry connection to complete.
+    WaitForRegistryHandshakeToComplete(GetRegistryHandshakeTimeout(_config));
+
+    // Start connecting and initiate the handshakes with all known participants.
+    ConnectToKnownParticipants();
+
+    // Wait for a fixed amount of time for all handshakes to complete.
+    WaitForAllReplies(GetParticipantHandshakeTimeout(_config));
+
+    _logger->Debug("Connected to all known participants");
+}
+
+void VAsioConnection::OpenParticipantAcceptors(const std::string& connectUri)
+{
     const auto acceptorEndpointUris = PrepareAcceptorEndpointUris(connectUri);
 
     if (_config.middleware.enableDomainSockets)
@@ -439,46 +489,59 @@ void VAsioConnection::JoinSimulation(std::string connectUri)
         SilKit::Services::Logging::Error(_logger, "JoinSimulation: no acceptors available");
         throw SilKitError{"JoinSimulation: no acceptors available"};
     }
+}
 
-    auto registry = VAsioPeer::Create(*_ioContext, this, _logger);
-    bool ok = false;
-
-    // NB: We attempt to connect multiple times. The registry might be a separate process
-    //     which may still be initializing when we are running. For example, this happens when all
-    //     participants are started in a shell, and the registry is started in the background.
-    const auto connectAttempts = _config.middleware.connectAttempts;
-
-    // Compute a list of Registry URIs and attempt to connect as per config
-    std::vector<std::string> attemptedUris{{connectUri}};
-
+void VAsioConnection::ConnectParticipantToRegistryAndStartIoWorker(const std::string& connectUriString)
+{
     _logger->Debug("Connecting to SIL Kit Registry");
 
-    // First, attempt local connections if available:
+    VAsioPeerInfo registryPeerInfo;
+    registryPeerInfo.participantName = REGISTRY_PARTICIPANT_NAME;
+    registryPeerInfo.participantId = REGISTRY_PARTICIPANT_ID;
+
     if (_config.middleware.enableDomainSockets)
     {
-        auto localPi = makeLocalPeerInfo("SilKitRegistry", RegistryParticipantId, connectUri);
-        //store local domain acceptor address for printing debug infos later
-        attemptedUris.push_back(localPi.acceptorUris.at(0));
-        ok = connectWithRetry(registry.get(), localPi, connectAttempts);
+        auto pi = makeLocalPeerInfo(REGISTRY_PARTICIPANT_NAME, REGISTRY_PARTICIPANT_ID, connectUriString);
+        std::copy(pi.acceptorUris.begin(), pi.acceptorUris.end(), std::back_inserter(registryPeerInfo.acceptorUris));
     }
 
-    // Fall back to TCP connections:
-    if (!ok)
+    Uri connectUri{connectUriString};
+    registryPeerInfo.acceptorUris.emplace_back(Uri::MakeTcp(connectUri.Host(), connectUri.Port()).EncodedString());
+
+    struct ConnectRegistryCallbacks final : IConnectPeerListener
     {
-        // setup TCP remote URI
-        VAsioPeerInfo pi;
-        pi.participantName = "SilKitRegistry";
-        pi.participantId = RegistryParticipantId;
-        pi.acceptorUris.push_back(connectUri);
-        ok = connectWithRetry(registry.get(), pi, connectAttempts);
-    }
-    // Neither local nor tcp is working.
-    if (!ok)
+        std::promise<std::unique_ptr<IRawByteStream>> promise;
+
+        void OnConnectPeerSuccess(IConnectPeer&, VAsioPeerInfo, std::unique_ptr<IRawByteStream> stream) override
+        {
+            promise.set_value(std::move(stream));
+        }
+
+        void OnConnectPeerFailure(IConnectPeer&, VAsioPeerInfo) override
+        {
+            promise.set_value(nullptr);
+        }
+    };
+
+    ConnectRegistryCallbacks connectRegistryCallbacks;
+    auto registryStreamFuture{connectRegistryCallbacks.promise.get_future()};
+
+    auto connectRegistry{MakeConnectPeer(registryPeerInfo)};
+    connectRegistry->SetListener(connectRegistryCallbacks);
+    connectRegistry->AsyncConnect(_config.middleware.connectAttempts, GetRegistryConnectTimeout(_config));
+
+    StartIoWorker();
+
+    auto registryStream{registryStreamFuture.get()};
+    if (registryStream == nullptr)
     {
         Services::Logging::Error(_logger, "Failed to connect to SIL Kit Registry (number of attempts: {})",
-                       _config.middleware.connectAttempts);
-        Services::Logging::Info(_logger, "   Make sure that the SIL Kit Registry is up and running and is listening on the following URIs: {}.",
-            printUris(attemptedUris));
+                                 _config.middleware.connectAttempts);
+
+        Services::Logging::Info(
+            _logger,
+            "   Make sure that the SIL Kit Registry is up and running and is listening on the following URIs: {}.",
+            printUris(registryPeerInfo.acceptorUris));
         _logger->Info("   If a registry is unable to open a listening socket it will only be reachable"
                       " via local domain sockets, which depend on the working directory"
                       " and the middleware configuration ('enableDomainSockets').");
@@ -489,83 +552,79 @@ void VAsioConnection::JoinSimulation(std::string connectUri)
         throw SilKitError{"ERROR: Failed to connect to SIL Kit Registry"};
     }
 
-    {
-        std::ostringstream ss;
-        ss << "Connected to registry at '" << registry->GetRemoteAddress() << "' via '" << registry->GetLocalAddress()
-           << "' (" << printUris(registry->GetInfo().acceptorUris) << ')';
-        _logger->Info(ss.str());
-    }
+    _registry = MakeVAsioPeer(std::move(registryStream));
+    _registry->SetInfo(registryPeerInfo);
 
-    registry->StartAsyncRead();
+    SilKit::Services::Logging::Info(_logger, "Connected to registry at '{}' via '{}' ({})",
+                                    _registry->GetRemoteAddress(), _registry->GetLocalAddress(),
+                                    printUris(_registry->GetInfo().acceptorUris));
 
-    SendParticipantAnnouncement(registry.get());
-    _registry = std::move(registry);
+    _registry->StartAsyncRead();
 
-    StartIoWorker();
-
-    auto receivedAllReplies = _receivedAllParticipantReplies.get_future();
-    _logger->Debug("SIL Kit is waiting for known participants list from registry.");
-
-    auto waitOk = receivedAllReplies.wait_for(5s);
-    if(waitOk == std::future_status::timeout)
-    {
-        if (_hasReceivedKnownParticipants)
-        {
-            // known participants was received -> probably connection issues with a participant
-            bool firstPeer = true;
-            std::ostringstream listOfPendingParticipants;
-            listOfPendingParticipants << "Timeout during connection setup. The participant was able to connect to the registry, "
-                                         "but not to all participants. There might be network issues. Check network settings and "
-                                         "firewall configuration. Was not able to connect to the following participant(s): ";
-
-            for (auto& peer : _pendingParticipantReplies)
-            {
-                auto& peerInfo = peer->GetInfo();
-                if (!firstPeer)
-                {
-                    listOfPendingParticipants << ", ";
-                }
-                listOfPendingParticipants << peerInfo.participantName << "(";
-
-                bool firstUri = true;
-                for (auto& uri : peerInfo.acceptorUris)
-                {
-                    if (!firstUri)
-                    {
-                        listOfPendingParticipants << ", ";
-                    }
-                    listOfPendingParticipants << uri;
-                    firstUri = false;
-                }
-
-                listOfPendingParticipants << ")";
-                firstPeer = false;
-            }
-
-            auto message = listOfPendingParticipants.str();
-            _logger->Error(message);
-            throw ProtocolError(std::move(message));
-        }
-        else
-        {
-            // no known participants were received -> probably connection issue with registry
-            auto message =
-                fmt::format("Timeout during connection handshake with SIL Kit Registry. This might indicate "
-                            "that a participant with the same name ('{}') has already connected to the registry.",
-                            _participantName);
-            _logger->Error(message);
-            throw ProtocolError(std::move(message));
-        }
-    }
-
-    // check if an exception was set:
-    receivedAllReplies.get();
-
-    _logger->Trace("SIL Kit received announcement replies from all participants.");
+    SendParticipantAnnouncement(_registry.get());
 }
 
-void VAsioConnection::NotifyNetworkIncompatibility(const RegistryMsgHeader& other,
-                                                   const std::string& otherParticipantName)
+void VAsioConnection::WaitForRegistryHandshakeToComplete(std::chrono::milliseconds timeout)
+{
+    SilKit::Services::Logging::Debug(_logger, "Waiting {}ms for the registry to reply", timeout.count());
+
+    auto future{_registryHandshakeComplete.get_future()};
+    auto futureStatus{future.wait_for(timeout)};
+
+    if (futureStatus == std::future_status::timeout)
+    {
+        std::string errorMessage{fmt::format(
+            "Timeout during connection handshake with the SIL Kit Registry. This might indicate that a participant "
+            "with the same name ('{}') has already connected to the registry.",
+            _participantName)};
+
+        _logger->Error(errorMessage);
+        throw SilKit::ProtocolError{errorMessage};
+    }
+
+    SILKIT_ASSERT(futureStatus == std::future_status::ready);
+
+    // propagate any exception stored in the promise
+    future.get();
+}
+
+void VAsioConnection::ConnectToKnownParticipants()
+{
+    _logger->Debug("Connecting to known participants");
+
+    _connectKnownParticipants.StartConnecting();
+
+    auto future{_startWaitingForParticipantHandshakes.get_future()};
+
+    // propagate any exception stored in the promise
+    future.get();
+}
+
+void VAsioConnection::WaitForAllReplies(std::chrono::milliseconds timeout)
+{
+    SilKit::Services::Logging::Debug(_logger, "Waiting {}ms for all known participants to reply", timeout.count());
+
+    auto future{_allKnownParticipantHandshakesComplete.get_future()};
+    auto futureStatus{future.wait_for(timeout)};
+
+    if (futureStatus == std::future_status::timeout)
+    {
+        std::string errorMessage{fmt::format("Timeout while waiting for replies from known participants: {}",
+                                             _connectKnownParticipants.Describe())};
+
+        _logger->Error(errorMessage);
+        throw SilKit::ProtocolError{errorMessage};
+    }
+
+    SILKIT_ASSERT(futureStatus == std::future_status::ready);
+
+    // propagate any exception stored in the promise
+    future.get();
+}
+
+
+void VAsioConnection::LogAndPrintNetworkIncompatibility(const RegistryMsgHeader& other,
+                                                        const std::string& otherParticipantName)
 {
     const auto errorMsg = fmt::format("Network incompatibility between this version range ({})"
         " and connecting participant '{}' ({})",
@@ -579,46 +638,15 @@ void VAsioConnection::NotifyNetworkIncompatibility(const RegistryMsgHeader& othe
 
 void VAsioConnection::SendParticipantAnnouncement(IVAsioPeer* peer)
 {
-    // Legacy Info for interop
-    // URI encoded infos
-    VAsioPeerInfo info{_participantName, _participantId, {}, GetCurrentCapabilities(_config)};
+    auto myPeerInfo{MakePeerInfo()};
 
+    for (const auto& uri : myPeerInfo.acceptorUris)
     {
-        std::unique_lock<decltype(_acceptorsMutex)> lock{_acceptorsMutex};
-
-        // Ensure that the local acceptors are the first entries in the acceptorUris
-        for (const auto& acceptor : _acceptors)
-        {
-            Uri uri{acceptor->GetLocalEndpoint()};
-
-            if (uri.Type() != Uri::UriType::Local)
-            {
-                continue;
-            }
-
-            info.acceptorUris.emplace_back(uri.EncodedString());
-
-            Services::Logging::Trace(_logger, "SendParticipantAnnouncement: Peer '{}': Local-Domain Acceptor Uri: {}",
-                                     peer->GetInfo().participantName, uri.EncodedString());
-        }
-
-        for (const auto& acceptor : _acceptors)
-        {
-            Uri uri{acceptor->GetLocalEndpoint()};
-
-            if (uri.Type() != Uri::UriType::Tcp)
-            {
-                continue;
-            }
-
-            info.acceptorUris.emplace_back(uri.EncodedString());
-
-            Services::Logging::Trace(_logger, "SendParticipantAnnouncement: Peer '{}': TCP Acceptor Uri: {}",
-                                     peer->GetInfo().participantName, uri.EncodedString());
-        }
+        Services::Logging::Trace(_logger, "SendParticipantAnnouncement: Peer '{}' ('{}'): Acceptor Uri: {}",
+                                 peer->GetInfo().participantName, peer->GetSimulationName(), uri);
     }
 
-    if (info.acceptorUris.empty())
+    if (myPeerInfo.acceptorUris.empty())
     {
         const auto message = "SendParticipantAnnouncement: Cannot send announcement: All acceptors "
                              "(both Local-Domain and TCP) are missing";
@@ -629,14 +657,17 @@ void VAsioConnection::SendParticipantAnnouncement(IVAsioPeer* peer)
     ParticipantAnnouncement announcement;
     // We override the default protocol version here for integration testing
     announcement.messageHeader = MakeRegistryMsgHeader(_version);
-    announcement.peerInfo = std::move(info);
+    announcement.peerInfo = std::move(myPeerInfo);
+    announcement.simulationName = _simulationName;
 
-    Services::Logging::Debug(_logger, "Sending participant announcement to {}", peer->GetInfo().participantName);
+    Services::Logging::Debug(_logger, "Sending participant announcement to '{}' ('{}')", peer->GetInfo().participantName, peer->GetSimulationName());
     peer->SendSilKitMsg(SerializedMessage{announcement});
 }
 
 void VAsioConnection::ReceiveParticipantAnnouncement(IVAsioPeer* from, SerializedMessage&& buffer)
 {
+    SILKIT_TRACE_METHOD_(_logger, "()");
+
     const auto remoteHeader = buffer.GetRegistryMessageHeader();
 
     // check if we support the remote peer's protocol version or signal a handshake failure
@@ -647,7 +678,7 @@ void VAsioConnection::ReceiveParticipantAnnouncement(IVAsioPeer* from, Serialize
     else
     {
         // it is not safe to decode the ParticipantAnnouncement
-        NotifyNetworkIncompatibility(remoteHeader, from->GetRemoteAddress());
+        LogAndPrintNetworkIncompatibility(remoteHeader, from->GetRemoteAddress());
 
         SendFailedParticipantAnnouncementReply(
             from,
@@ -663,15 +694,31 @@ void VAsioConnection::ReceiveParticipantAnnouncement(IVAsioPeer* from, Serialize
     buffer.SetProtocolVersion(from->GetProtocolVersion());
     auto announcement = buffer.Deserialize<ParticipantAnnouncement>();
 
-    Services::Logging::Debug(_logger, "Received participant announcement from {}, protocol version {}.{}",
+    Services::Logging::Debug(_logger,
+                             "Received participant announcement from {}, protocol version {}.{}, simulation name '{}'",
                              announcement.peerInfo.participantName, announcement.messageHeader.versionHigh,
-                             announcement.messageHeader.versionLow);
+                             announcement.messageHeader.versionLow, announcement.simulationName);
+
+    if (!_allowAnySimulationName && announcement.simulationName != _simulationName)
+    {
+        SendFailedParticipantAnnouncementReply(
+            from,
+            // tell the remote peer what protocol version we accepted for communication with them
+            from->GetProtocolVersion(),
+            // use the exception message as the diagnostic
+            fmt::format("Announced simulation name '{}' does not match this participants simulation name '{}'",
+                        announcement.simulationName, _simulationName));
+
+        return;
+    }
 
     from->SetInfo(announcement.peerInfo);
     auto& service = dynamic_cast<IServiceEndpoint&>(*from);
     auto serviceDescriptor = service.GetServiceDescriptor();
     serviceDescriptor.SetParticipantNameAndComputeId(announcement.peerInfo.participantName);
     service.SetServiceDescriptor(serviceDescriptor);
+
+    from->SetSimulationName(announcement.simulationName);
 
     // If one of the handlers for ParticipantAnnouncements throws an exception, report failure to the remote peer
     try
@@ -694,14 +741,14 @@ void VAsioConnection::ReceiveParticipantAnnouncement(IVAsioPeer* from, Serialize
         return;
     }
 
-    AssociateParticipantNameAndPeer(announcement.peerInfo.participantName, from);
+    AssociateParticipantNameAndPeer(announcement.simulationName, announcement.peerInfo.participantName, from);
     SendParticipantAnnouncementReply(from);
-
-    RemovePeerFromPendingLists(from);
 }
 
 void VAsioConnection::SendParticipantAnnouncementReply(IVAsioPeer* peer)
 {
+    SILKIT_TRACE_METHOD_(_logger, "()");
+
     ParticipantAnnouncementReply reply;
     // tell the remote peer what *our* protocol version is that we can accept for this peer
     reply.remoteHeader = MakeRegistryMsgHeader(peer->GetProtocolVersion());
@@ -712,8 +759,9 @@ void VAsioConnection::SendParticipantAnnouncementReply(IVAsioPeer* peer)
                        return subscriber->GetDescriptor();
                    });
 
-    Services::Logging::Debug(_logger, "Sending ParticipantAnnouncementReply to '{}' with protocol version {}",
-                             peer->GetInfo().participantName, ExtractProtocolVersion(reply.remoteHeader));
+    Services::Logging::Debug(_logger, "Sending ParticipantAnnouncementReply to '{}' ('{}') with protocol version {}",
+                             peer->GetInfo().participantName, peer->GetSimulationName(),
+                             ExtractProtocolVersion(reply.remoteHeader));
 
     peer->SendSilKitMsg(SerializedMessage{peer->GetProtocolVersion(), reply});
 }
@@ -721,41 +769,49 @@ void VAsioConnection::SendParticipantAnnouncementReply(IVAsioPeer* peer)
 void VAsioConnection::SendFailedParticipantAnnouncementReply(IVAsioPeer* peer, ProtocolVersion version,
                                                              std::string diagnostic)
 {
+    SILKIT_TRACE_METHOD_(_logger, "()");
+
     ParticipantAnnouncementReply reply;
     reply.remoteHeader = MakeRegistryMsgHeader(version);
     reply.status = ParticipantAnnouncementReply::Status::Failed;
     reply.diagnostic = std::move(diagnostic);
 
-    Services::Logging::Debug(_logger, "Sending failed ParticipantAnnouncementReply to '{}' with protocol version {}",
-                             peer->GetInfo().participantName, ExtractProtocolVersion(reply.remoteHeader));
+    Services::Logging::Debug(
+        _logger, "Sending failed ParticipantAnnouncementReply to '{}' ('{}') with protocol version {}",
+        peer->GetInfo().participantName, peer->GetSimulationName(), ExtractProtocolVersion(reply.remoteHeader));
 
     peer->SendSilKitMsg(SerializedMessage{peer->GetProtocolVersion(), reply});
 }
 
 void VAsioConnection::ReceiveParticipantAnnouncementReply(IVAsioPeer* from, SerializedMessage&& buffer)
 {
+    SILKIT_TRACE_METHOD_(_logger, "()");
+
     auto reply = buffer.Deserialize<ParticipantAnnouncementReply>();
     const auto& remoteVersion = ExtractProtocolVersion(reply.remoteHeader);
 
     if (reply.status == ParticipantAnnouncementReply::Status::Failed)
     {
-        const auto message =
-            fmt::format("SIL Kit Connection Handshake: Received failed ParticipantAnnouncementReply from '{}' with "
-                        "protocol version {} and diagnostic message: {}",
-                        from->GetInfo().participantName,
-                        // extract the version delivered in the reply (
-                        ExtractProtocolVersion(reply.remoteHeader),
-                        // provide a non-empty default string for the diagnostic message
-                        reply.diagnostic.empty() ? "(no diagnostic message was delivered)" : reply.diagnostic.c_str());
+        const auto message = fmt::format(
+            "SIL Kit Connection Handshake: Received failed ParticipantAnnouncementReply from '{}' ('{}') with "
+            "protocol version {} and diagnostic message: {}",
+            from->GetInfo().participantName, from->GetSimulationName(),
+            // extract the version delivered in the reply (
+            ExtractProtocolVersion(reply.remoteHeader),
+            // provide a non-empty default string for the diagnostic message
+            reply.diagnostic.empty() ? "(no diagnostic message was delivered)" : reply.diagnostic.c_str());
 
         _logger->Warn(message);
 
         // tear down the participant if we are talking to the registry
-        if (from->GetInfo().participantId == RegistryParticipantId)
+        if (from->GetInfo().participantId == REGISTRY_PARTICIPANT_ID)
         {
             // handshake with SIL Kit Registry failed, we need to abort.
             auto error = ProtocolError(message);
-            _receivedAllParticipantReplies.set_exception(std::make_exception_ptr(error)); //propagate to main thread
+
+            // propagate the error to the main thread
+            _registryHandshakeComplete.set_exception(std::make_exception_ptr(error));
+
             throw error; // for I/O thread
         }
 
@@ -769,257 +825,293 @@ void VAsioConnection::ReceiveParticipantAnnouncementReply(IVAsioPeer* from, Seri
         TryAddRemoteSubscriber(from, subscriber);
     }
 
-    Services::Logging::Debug(_logger, "Received participant announcement reply from {} protocol version {}",
-                             from->GetInfo().participantName, remoteVersion);
+    Services::Logging::Debug(_logger, "Received participant announcement reply from '{}' ('{}') protocol version {}",
+                             from->GetInfo().participantName, from->GetSimulationName(), remoteVersion);
 
-    RemovePeerFromPendingLists(from);
-}
-
-bool VAsioConnection::TryRequestRemoteConnection(std::shared_ptr<VAsioPeer>& directPeer,
-    const VAsioPeerInfo& peerInfo,
-    const std::string& message)
-{
-    if (!PeerHasCapability(peerInfo, Capabilities::RequestParticipantConnection))
+    if (from->GetInfo().participantId == REGISTRY_PARTICIPANT_ID)
     {
-        return false;
+        _registryHandshakeComplete.set_value();
     }
-
-    SilKit::Services::Logging::Info(
-        _logger,
-        "VAsioConnection: Failed to connect directly to {}, trying to request a remote connection from the participant via the registry: {}",
-        peerInfo.participantName, message);
-
-    // Remove the "direct-connection" peer from the list of peers we expect an answer from
-    auto it = std::find(_pendingParticipantReplies.begin(), _pendingParticipantReplies.end(), directPeer);
-    _pendingParticipantReplies.erase(it);
-    // Destroy the peer object
-    directPeer.reset();
-
+    else
     {
-        std::unique_lock<decltype(_pendingRemoteMx)> lock(_pendingRemoteMx);
-        PendingRemoteConnection remoteConn{*_ioContext, peerInfo};
-        remoteConn.timer->SetListener(*this);
-        remoteConn.timer->AsyncWaitFor(_remoteConnectionTimeout);
-        _pendingRemoteConnections[peerInfo.participantName] = std::move(remoteConn);
+        _connectKnownParticipants.HandlePeerEvent(from->GetInfo().participantName,
+                                                  ConnectKnownParticipants::PeerEvent::PARTICIPANT_ANNOUNCEMENT_REPLY);
     }
-
-    //send remote connection request to registry, which it will relay
-
-    RemoteParticipantConnectRequest request{};
-    request.connectTargetPeer = peerInfo;
-    request.peerUnableToConnect = {}; // will be replaced by the registry
-    request.peerUnableToConnect.participantName = _participantName;
-    request.peerUnableToConnect.participantId = _participantId;
-
-    _registry->SendSilKitMsg(SerializedMessage{_registry->GetProtocolVersion(), request});
-
-    return true;
-}
-
-bool VAsioConnection::TryCreatingProxy(std::shared_ptr<VAsioPeer>& directPeer,
-                                       std::shared_ptr<IVAsioConnectionPeer>& peer,
-                                       const VAsioPeerInfo& peerInfo,
-                                       const std::string& message)
-{
-    if (!_config.middleware.registryAsFallbackProxy)
-    {
-        SilKit::Services::Logging::Warn(_logger,
-                                        "VAsioConnection: Cannot use ProxyMessage to communicate with {}, "
-                                        "because it is disabled in the configuration",
-                                        peerInfo.participantName);
-        return false;
-    }
-
-    SilKit::Services::Logging::Warn(
-        _logger,
-        "VAsioConnection: Failed to connect directly to {}, trying to proxy messages through the registry: {}",
-        peerInfo.participantName, message);
-
-    // NB: Cannot check the capabilities of the registry, since we do not receive the PeerInfo from the
-    //       registry over the network, but build it ourselves in VAsioConnection::JoinSimulation.
-    //       This is not be a huge issue, since we can just 'throw the messages at the registry' and will
-    //       fail with the participant-connection-timeout if it is not capable of routing it to the other
-    //       participant.
-
-
-    // To use the ProxyMessage, the peer we're trying to connect to must support it
-    if (!PeerHasCapability(peerInfo, Capabilities::ProxyMessage))
-    {
-        SilKit::Services::Logging::Warn(_logger,
-                                        "VAsioConnection: Cannot use ProxyMessage to communicate with {}, "
-                                        "because {} does not support it",
-                                        peerInfo.participantName, peerInfo.participantName);
-        return false;
-    }
-
-    // Remove the "direct-connection" peer from the list of peers we expect an answer from
-    auto it = std::find(_pendingParticipantReplies.begin(), _pendingParticipantReplies.end(), directPeer);
-    _pendingParticipantReplies.erase(it);
-    // Destroy the peer object
-    directPeer = nullptr;
-
-    // Create the "proxy-peer" object
-    peer = std::make_shared<VAsioProxyPeer>(this, peerInfo, _registry.get(), _logger);
-    // Remember that we expect a reply from this peer
-    _pendingParticipantReplies.push_back(peer);
-    return true;
 }
 
 void VAsioConnection::ReceiveKnownParticpants(IVAsioPeer* peer, SerializedMessage&& buffer)
 {
-    auto participantsMsg = buffer.Deserialize<KnownParticipants>();
+    SILKIT_TRACE_METHOD_(_logger, "()");
+
+    auto msg = buffer.Deserialize<KnownParticipants>();
+
+    Services::Logging::Debug(_logger, "Received known participants list from '{}' ('{}') protocol {}.{}",
+                             peer->GetInfo().participantName, peer->GetSimulationName(), msg.messageHeader.versionHigh,
+                             msg.messageHeader.versionLow);
 
     // After receiving a ParticipantAnnouncement the Registry will send a KnownParticipants message
     // check if we support its version here
-    if (ProtocolVersionSupported(participantsMsg.messageHeader))
-    {
-        peer->SetProtocolVersion(ExtractProtocolVersion(participantsMsg.messageHeader));
-    }
-    else
+    if (!ProtocolVersionSupported(msg.messageHeader))
     {
         // Not acknowledged
-        NotifyNetworkIncompatibility(participantsMsg.messageHeader, peer->GetInfo().participantName);
+        LogAndPrintNetworkIncompatibility(msg.messageHeader, peer->GetInfo().participantName);
 
         ParticipantAnnouncementReply reply;
         reply.status = ParticipantAnnouncementReply::Status::Failed;
         reply.remoteHeader = MakeRegistryMsgHeader(_version);
+
         peer->SendSilKitMsg(SerializedMessage{peer->GetProtocolVersion(), reply});
+
         return;
     }
 
-    _hasReceivedKnownParticipants = true;
+    peer->SetProtocolVersion(ExtractProtocolVersion(msg.messageHeader));
 
-    Services::Logging::Debug(_logger, "Received known participants list from SilKitRegistry protocol {}.{}",
-                             participantsMsg.messageHeader.versionHigh, participantsMsg.messageHeader.versionLow);
-
-    // check URI first
-    for (auto&& peerInfo : participantsMsg.peerInfos)
-    {
-        if (peerInfo.participantName == _participantName)
-        {
-            continue;
-        }
-        ConnectPeer(peerInfo);
-    }
-
-    if (_pendingParticipantReplies.empty())
-    {
-        _receivedAllParticipantReplies.set_value();
-    }
-    Services::Logging::Trace(_logger, "SIL Kit is waiting for {} ParticipantAnnouncementReplies",
-                             _pendingParticipantReplies.size());
-
+    _connectKnownParticipants.SetKnownParticipants(msg.peerInfos);
 }
 
 
-
-void VAsioConnection::ReceiveRemoteParticipantConnectRequest(SerializedMessage&& buffer)
+void VAsioConnection::ReceiveRemoteParticipantConnectRequest(IVAsioPeer* peer, SerializedMessage&& buffer)
 {
-    auto remoteConnectRequest = buffer.Deserialize<RemoteParticipantConnectRequest>();
-    if (remoteConnectRequest.connectTargetPeer.participantName == _participantName)
+    SILKIT_TRACE_METHOD_(_logger, "(...)");
+
+    const auto registryMsgHeader = buffer.GetRegistryMessageHeader();
+
+    // check if we support the remote peer's protocol version or signal a handshake failure
+    if (ProtocolVersionSupported(registryMsgHeader))
     {
+        if (peer->GetInfo().participantId != REGISTRY_PARTICIPANT_ID)
         {
-            std::unique_lock<decltype(_peersLock)> lock2(_peersLock);
-            for (auto&& connectedPeer : _peers)
-
-            {
-                if (connectedPeer->GetInfo().participantName
-                    == remoteConnectRequest.peerUnableToConnect.participantName)
-                {
-                    // we already have a connection to the peer, skip it
-                    return;
-                }
-            }
-        }
-        ConnectPeer(remoteConnectRequest.peerUnableToConnect, true);
-        return;
-    }
-
-
-    // The registry delegates the request to the remote participant
-    if (_participantId == RegistryParticipantId)
-    {
-        // find the peer which was unable to connect, and get its (resolved) peerInfo
-        const auto unhappyPeerIt =
-            _participantNameToPeer.find(remoteConnectRequest.peerUnableToConnect.participantName);
-        if (unhappyPeerIt == _participantNameToPeer.end())
-        {
-            Services::Logging::Error(_logger,
-                                     "SilKit::VAsioConnection: remote connection request from unknown participant '{}'",
-                                     remoteConnectRequest.peerUnableToConnect.participantName);
-            return;
-        }
-        const auto peerIt = _participantNameToPeer.find(remoteConnectRequest.connectTargetPeer.participantName);
-        if (peerIt == _participantNameToPeer.end())
-        {
-            Services::Logging::Error(_logger, "SilKit::VAsioConnection: remote connection request to unknown participant '{}'",
-                                     remoteConnectRequest.connectTargetPeer.participantName);
-            return;
-        }
-        remoteConnectRequest.peerUnableToConnect = unhappyPeerIt->second->GetInfo();
-        remoteConnectRequest.peerUnableToConnect.acceptorUris =
-            TransformAcceptorUris(_logger, unhappyPeerIt->second, peerIt->second);
-        remoteConnectRequest.peerUnableToConnect.acceptorUris.push_back(unhappyPeerIt->second->GetLocalAddress());
-
-        peerIt->second->SendSilKitMsg(SerializedMessage{std::move(remoteConnectRequest)});
-    }
-}
-
-void VAsioConnection::ConnectPeer(const VAsioPeerInfo& peerInfo, bool connectDirectly)
-{
-    Services::Logging::Debug(_logger, "Connecting to {} with Id {} on {}", peerInfo.participantName,
-                             peerInfo.participantId, printUris(peerInfo));
-
-    // Create the "direct-connection" peer
-    auto directPeer = VAsioPeer::Create(*_ioContext, this, _logger);
-
-    // Remember that we expect a reply from this peer
-    _pendingParticipantReplies.push_back(directPeer);
-
-    std::shared_ptr<IVAsioConnectionPeer> peer;
-
-    // Try to connect to the peer only _after_ remembering that we need to connect, otherwise suitable error will
-    // be raised.
-    bool success = false;
-    std::stringstream attemptedUris;
-    directPeer->Connect(peerInfo, attemptedUris, success);
-    if (!success && !connectDirectly)
-    {
-        auto errorMsg = fmt::format("Failed to connect to host URIs: \"{}\"", attemptedUris.str());
-        if (!TryCreatingProxy(directPeer, peer, peerInfo, errorMsg))
-        {
-            TryRequestRemoteConnection(directPeer, peerInfo, errorMsg);
-            return;
+            peer->SetProtocolVersion(ExtractProtocolVersion(registryMsgHeader));
         }
     }
     else
     {
-        peer = std::move(directPeer);
+        Log::Warn(_logger,
+                  "Received RemoteParticipantConnectRequest from peer '{}' ('{}' at '{}') with unsupported protocol "
+                  "version {}.{}",
+                  peer->GetInfo().participantName, peer->GetSimulationName(), peer->GetRemoteAddress(),
+                  registryMsgHeader.versionHigh, registryMsgHeader.versionLow);
+
+        // ignore the request if it is sent via the registry (we cannot deserialize it anyway)
+        if (peer->GetInfo().participantId == REGISTRY_PARTICIPANT_ID)
+        {
+            Log::Debug(_logger, "Dropping invalid RemoteParticipantConnectRequest from registry");
+            return;
+        }
+
+        // it is not safe to decode the RemoteParticipantConnectRequest
+        LogAndPrintNetworkIncompatibility(registryMsgHeader, peer->GetRemoteAddress());
+
+        return;
     }
 
+    auto msg{buffer.Deserialize<RemoteParticipantConnectRequest>()};
+
+    if (!_capabilities.HasRequestParticipantConnectionCapability())
+    {
+        SilKit::Services::Logging::Warn(_logger,
+                                        "Ignoring RemoteParticipantConnectRequest because feature is disabled via "
+                                        "configuration: origin {}, target {}",
+                                        msg.requestOrigin.participantName, msg.requestTarget.participantName);
+        return;
+    }
+
+    if (_participantId == REGISTRY_PARTICIPANT_ID)
+    {
+        ReceiveRemoteParticipantConnectRequest_Registry(peer, std::move(msg));
+        return;
+    }
+    else
+    {
+        ReceiveRemoteParticipantConnectRequest_Participant(peer, std::move(msg));
+        return;
+    }
+}
+
+void VAsioConnection::ReceiveRemoteParticipantConnectRequest_Registry(IVAsioPeer* peer, RemoteParticipantConnectRequest msg)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({} {} {})", msg.requestOrigin.participantName, msg.requestTarget.participantName,
+                         static_cast<int>(msg.status));
+
+    if (msg.status == RemoteParticipantConnectRequest::ANNOUNCEMENT)
+    {
+        SilKit::Services::Logging::Error(_logger,
+                                         "Ignoring RemoteParticipantConnectRequest announcement (origin={}, target={})",
+                                         msg.requestOrigin.participantName, msg.requestTarget.participantName);
+        return;
+    }
+
+    IVAsioPeer* destination{nullptr};
+
+    switch (msg.status)
+    {
+    case RemoteParticipantConnectRequest::REQUEST:
+        destination = FindPeerByName(peer->GetSimulationName(), msg.requestTarget.participantName);
+
+        if (destination != nullptr)
+        {
+            // update the acceptor peer info of the requests origin (particularly the acceptor URIs)
+            msg.requestOrigin = peer->GetInfo();
+            msg.requestOrigin.acceptorUris = TransformAcceptorUris(_logger, peer, destination);
+        }
+
+        break;
+    case RemoteParticipantConnectRequest::CONNECTING:
+    case RemoteParticipantConnectRequest::FAILED_TO_CONNECT:
+        destination = FindPeerByName(peer->GetSimulationName(), msg.requestOrigin.participantName);
+        break;
+
+    default:
+        // The registry only cares about REQUEST, CONNECTING, and CONNECTING_FAILED
+        break;
+    }
+
+    if (destination == nullptr)
+    {
+        SilKit::Services::Logging::Error(
+            _logger, "Ignoring invalid RemoteParticipantConnectRequest (origin={}, target={}, status={})",
+            msg.requestOrigin.participantName, msg.requestTarget.participantName, static_cast<int>(msg.status));
+        return;
+    }
+
+    SerializedMessage buffer{msg};
+    destination->SendSilKitMsg(buffer);
+}
+
+void VAsioConnection::ReceiveRemoteParticipantConnectRequest_Participant(IVAsioPeer* peer, RemoteParticipantConnectRequest msg)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({} {} {})", msg.requestOrigin.participantName, msg.requestTarget.participantName,
+                         static_cast<int>(msg.status));
+
+    const bool isOrigin{msg.requestOrigin.participantName == _participantName};
+    const bool isTarget{msg.requestTarget.participantName == _participantName};
+
+    if (!isOrigin && isTarget)
+    {
+        if (msg.status == RemoteParticipantConnectRequest::REQUEST)
+        {
+            SilKit::Services::Logging::Debug(
+                _logger,
+                "Received RemoteParticipantConnectRequest::REQUEST (request origin {}, request target {})",
+                msg.requestOrigin.participantName, msg.requestTarget.participantName);
+
+            // XXX check if already connected to origin
+
+            _remoteConnectionManager.StartConnectingTo(msg.requestOrigin);
+
+            // Notify the remote peer that we are now attempting to connect. The remote peer will then wait for the
+            // incoming connection, or the FAILED_TO_CONNECT status message, which will initiate the connection via the
+            // registry proxy.
+            msg.status = RemoteParticipantConnectRequest::CONNECTING;
+            SerializedMessage buffer{msg};
+            peer->SendSilKitMsg(std::move(buffer));
+
+            return;
+        }
+    }
+
+    if (isOrigin && !isTarget)
+    {
+        if (msg.status == RemoteParticipantConnectRequest::ANNOUNCEMENT)
+        {
+            SilKit::Services::Logging::Debug(
+                _logger,
+                "Received RemoteParticipantConnectRequest::ANNOUNCEMENT (request origin {}, request target {})",
+                msg.requestOrigin.participantName, msg.requestTarget.participantName);
+
+            // The remote participant informs us that this is a remote-connection and we should start the
+            // participant-participant handshake (i.e., send the ParticipantAnnouncement).
+            peer->SetInfo(msg.requestTarget);
+
+            _connectKnownParticipants.HandlePeerEvent(
+                msg.requestTarget.participantName,
+                ConnectKnownParticipants::PeerEvent::REMOTE_PARTICIPANT_ANNOUNCEMENT);
+
+            HandleConnectedPeer(peer);
+            return;
+        }
+
+        if (msg.status == RemoteParticipantConnectRequest::CONNECTING)
+        {
+            SilKit::Services::Logging::Debug(
+                _logger,
+                "Received RemoteParticipantConnectRequest::CONNECTING (request origin {}, request target {})",
+                msg.requestOrigin.participantName, msg.requestTarget.participantName);
+
+            // The remote participant informs us that it received the REQUEST and is starting to connect to us.
+            _connectKnownParticipants.HandlePeerEvent(
+                msg.requestTarget.participantName,
+                ConnectKnownParticipants::PeerEvent::REMOTE_PARTICIPANT_IS_CONNECTING);
+
+            return;
+        }
+
+        if (msg.status == RemoteParticipantConnectRequest::FAILED_TO_CONNECT)
+        {
+            SilKit::Services::Logging::Debug(
+                _logger,
+                "Received RemoteParticipantConnectRequest::FAILED_TO_CONNECT (request origin {}, request target {})",
+                msg.requestOrigin.participantName, msg.requestTarget.participantName);
+
+            _connectKnownParticipants.HandlePeerEvent(
+                msg.requestTarget.participantName,
+                ConnectKnownParticipants::PeerEvent::REMOTE_PARTICIPANT_FAILED_TO_CONNECT);
+
+            return;
+        }
+    }
+
+    SilKit::Services::Logging::Error(
+        _logger, "Ignoring invalid RemoteParticipantConnectRequest (origin={}, target={}, status={})",
+        msg.requestOrigin.participantName, msg.requestTarget.participantName, static_cast<int>(msg.status));
+}
+
+
+void VAsioConnection::HandleConnectedPeer(IVAsioPeer* peer)
+{
+    const auto& peerInfo{peer->GetInfo()};
+
+    // Since we are connecting to the peer, we already know which simulation name we expect.
+    peer->SetSimulationName(_simulationName);
+
     // We connected to the other peer. tell him who we are.
-    SendParticipantAnnouncement(peer.get());
+    SendParticipantAnnouncement(peer);
 
     // The service ID is incomplete at this stage.
     ServiceDescriptor peerId;
     peerId.SetParticipantNameAndComputeId(peerInfo.participantName);
     peer->SetServiceDescriptor(peerId);
 
-    const auto result =
-        _hashToParticipantName.insert({SilKit::Util::Hash::Hash(peerInfo.participantName), peerInfo.participantName});
-    if (result.second == false)
+    AssociateParticipantNameAndPeer(_simulationName, peer->GetInfo().participantName, peer);
+}
+
+
+void VAsioConnection::AssociateParticipantNameAndPeer(const std::string& simulationName, const std::string& participantName, IVAsioPeer* peer)
+{
+    std::lock_guard<decltype(_mutex)> lock{_mutex};
+    _participantNameToPeer[simulationName].insert({participantName, peer});
+}
+
+auto VAsioConnection::FindPeerByName(const std::string& simulationName, const std::string& participantName) const -> IVAsioPeer*
+{
+    std::lock_guard<decltype(_mutex)> lock{_mutex};
+
+    auto simulationIt{_participantNameToPeer.find(simulationName)};
+    if (simulationIt == _participantNameToPeer.end())
     {
-        throw SilKit::AssertionError{"VAsioConnection: could not add participant name to hash map"};
+        return nullptr;
     }
 
-    AssociateParticipantNameAndPeer(peer->GetInfo().participantName, peer.get());
-    AddPeer(std::move(peer));
+    auto participantIt{simulationIt->second.find(participantName)};
+    if (participantIt == simulationIt->second.end())
+    {
+        return nullptr;
+    }
+
+    return participantIt->second;
 }
 
-void VAsioConnection::AssociateParticipantNameAndPeer(const std::string& participantName, IVAsioPeer* peer)
-{
-    _participantNameToPeer.insert({participantName, peer});
-}
 
 void VAsioConnection::StartIoWorker()
 {
@@ -1079,7 +1171,7 @@ auto VAsioConnection::AcceptTcpConnectionsOn(const std::string& hostName, uint16
     -> std::pair<std::string, uint16_t>
 {
     // Default to TCP IPv4 catchallIp
-    asio::ip::tcp::endpoint endpoint(tcp::v4(), port);
+    asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
 
     if (!hostName.empty())
     {
@@ -1129,7 +1221,7 @@ auto VAsioConnection::AcceptTcpConnectionsOn(const std::string& hostName, uint16
     }
 }
 
-void VAsioConnection::AddPeer(std::shared_ptr<IVAsioPeer> newPeer)
+void VAsioConnection::AddPeer(std::unique_ptr<IVAsioPeer> newPeer)
 {
     newPeer->StartAsyncRead();
 
@@ -1191,26 +1283,32 @@ void VAsioConnection::OnPeerShutdown(IVAsioPeer* peer)
 
 void VAsioConnection::SendProxyPeerShutdownNotification(IVAsioPeer* peer)
 {
-    const auto & source = peer->GetInfo().participantName;
+    const auto& sourceSimulationName = peer->GetSimulationName();
+    const auto& sourceParticipantName = peer->GetInfo().participantName;
 
-    const auto proxyDestinationsIt = _proxySourceToDestinations.find(source);
-    if (proxyDestinationsIt != _proxySourceToDestinations.end())
+    const auto simulationIt = _proxySourceToDestinations.find(sourceSimulationName);
+    if (simulationIt != _proxySourceToDestinations.end())
     {
-        for (const auto& destination : proxyDestinationsIt->second)
+        const auto proxyDestinationsIt = simulationIt->second.find(sourceParticipantName);
+        if (proxyDestinationsIt != simulationIt->second.end())
         {
-            // if a destination participant name has no associated peer, ignore it, it was already been disconnected
-            const auto peerIt = _participantNameToPeer.find(destination);
-            if (peerIt == _participantNameToPeer.end())
+            for (const auto& destination : proxyDestinationsIt->second)
             {
-                continue;
+                auto destinationPeer{FindPeerByName(sourceSimulationName, destination)};
+
+                // if a destination participant name has no associated peer, ignore it, it was already been disconnected
+                if (destinationPeer == nullptr)
+                {
+                    continue;
+                }
+
+                ProxyMessage msg{};
+                msg.source = sourceParticipantName;
+                msg.destination = destination;
+                msg.payload.clear();
+
+                destinationPeer->SendSilKitMsg(SerializedMessage{msg});
             }
-
-            ProxyMessage msg{};
-            msg.source = source;
-            msg.destination = destination;
-            msg.payload.clear();
-
-            peerIt->second->SendSilKitMsg(SerializedMessage{std::move(msg)});
         }
     }
 }
@@ -1230,7 +1328,15 @@ void VAsioConnection::RemovePeerFromLinks(IVAsioPeer* peer)
 
 void VAsioConnection::RemovePeerFromConnection(IVAsioPeer* peer)
 {
-    _participantNameToPeer.erase(peer->GetInfo().participantName);
+    {
+        std::lock_guard<decltype(_mutex)> lock{_mutex};
+
+        auto simulationIt{_participantNameToPeer.find(peer->GetSimulationName())};
+        if (simulationIt != _participantNameToPeer.end())
+        {
+            simulationIt->second.erase(peer->GetInfo().participantName);
+        }
+    }
 
     auto it{std::find_if(_peers.begin(), _peers.end(), [needle = peer](const auto& hay) {
         return hay.get() == needle;
@@ -1239,80 +1345,6 @@ void VAsioConnection::RemovePeerFromConnection(IVAsioPeer* peer)
     if (it != _peers.end())
     {
         _peers.erase(it);
-    }
-}
-
-void VAsioConnection::HandleExpiredConnection()
-{
-    SilKit::Services::Logging::Debug(_logger, "Remote connection time out reached. Number of remote connections: {}", _pendingRemoteConnections.size());
-
-    auto now = std::chrono::steady_clock::now();
-    std::unique_lock<decltype(_pendingRemoteMx)> lock(_pendingRemoteMx);
-    std::unique_lock<decltype(_peersLock)> lock2(_peersLock);
-    //clean up successful connections
-    for (auto&& existingPeer : _peers)
-    {
-        auto&& participantName = existingPeer->GetInfo().participantName;
-        auto it = _pendingRemoteConnections.find(participantName);
-        if (it != _pendingRemoteConnections.end())
-        {
-            SilKit::Services::Logging::Trace(_logger, "Remote connection to '{}' succeeded", participantName);
-            _pendingRemoteConnections.erase(it);
-        }
-    }
-
-    for (auto it = _pendingRemoteConnections.begin(); it != _pendingRemoteConnections.end(); /*nop */)
-    {
-        auto&& pendingParticipant = it->first;
-        auto&& pendingRemoteConn = it->second;
-
-        if (now >= pendingRemoteConn.timer->GetExpiry())
-        {
-            SilKit::Services::Logging::Trace(_logger, "Dropping pending remote connection to '{}'", pendingParticipant);
-            it = _pendingRemoteConnections.erase(it++);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-
-}
-
-void VAsioConnection::RemovePeerFromPendingLists(IVAsioPeer* from)
-{
-    auto iter = std::find_if(_pendingParticipantReplies.begin(), _pendingParticipantReplies.end(),
-            [&from](const auto& peer) {
-                return peer->GetInfo().participantName == from->GetInfo().participantName;
-        });
-    if (iter != _pendingParticipantReplies.end())
-    {
-        _pendingParticipantReplies.erase(iter);
-        if (_pendingParticipantReplies.empty())
-        {
-            try
-            {
-                _receivedAllParticipantReplies.set_value();
-            }
-            catch (...)
-            {
-            }
-        }
-    }
-
-    if (_participantId != RegistryParticipantId)
-    {
-        // remove pending remote connection
-        std::unique_lock<decltype(_pendingRemoteMx)> lock(_pendingRemoteMx);
-        auto pendingIt = _pendingRemoteConnections.find(from->GetInfo().participantName);
-        if (pendingIt != _pendingRemoteConnections.end())
-        {
-            // finish our initial connect attempt, by sending our ParticipantAnnouncement over the
-            // established remote connection.
-            SendParticipantAnnouncement(from);
-            Services::Logging::Debug(_logger, "Remote connection to '{}' succeeded.", from->GetInfo().participantName);
-            pendingIt->second.timer->Shutdown();
-        }
     }
 }
 
@@ -1359,7 +1391,7 @@ void VAsioConnection::ReceiveProxyMessage(IVAsioPeer* from, SerializedMessage&& 
 
     auto proxyMessage = buffer.Deserialize<ProxyMessage>();
 
-    if (!_config.middleware.registryAsFallbackProxy)
+    if (!_capabilities.HasProxyMessageCapability())
     {
         static SilKit::Services::Logging::LogOnceFlag onceFlag;
         SilKit::Services::Logging::Warn(
@@ -1369,50 +1401,47 @@ void VAsioConnection::ReceiveProxyMessage(IVAsioPeer* from, SerializedMessage&& 
         return;
     }
 
+    const auto& fromSimulationName{from->GetSimulationName()};
+
     SilKit::Services::Logging::Trace(_logger,
-                                     "Received message with VAsioMsgKind::SilKitProxyMessage: From {}, To {}",
-                                     proxyMessage.source, proxyMessage.destination);
+                                     "Received message with VAsioMsgKind::SilKitProxyMessage: From {} ({}), To {}",
+                                     proxyMessage.source, fromSimulationName, proxyMessage.destination);
+
 
     const bool fromIsSource = from->GetInfo().participantName == proxyMessage.source;
     if (fromIsSource)
     {
-        auto it = _participantNameToPeer.find(proxyMessage.destination);
-        if (it == _participantNameToPeer.end())
+        auto peer{FindPeerByName(fromSimulationName, proxyMessage.destination)};
+        if (peer == nullptr)
         {
-            SilKit::Services::Logging::Error(_logger, "Unable to deliver proxy message from {} to {}",
-                                             proxyMessage.source, proxyMessage.destination);
+            SilKit::Services::Logging::Error(_logger, "Unable to deliver proxy message from {} to {} in simulation {}",
+                                             proxyMessage.source, proxyMessage.destination, fromSimulationName);
             return;
         }
 
-        it->second->SendSilKitMsg(SerializedMessage{proxyMessage});
+        peer->SendSilKitMsg(SerializedMessage{proxyMessage});
 
         // We are relaying a message from source to destination and acting as a proxy. Record the association between
         // source and destination. This is used during disconnects, where we create empty ProxyMessages on behalf of
         // the disconnected peer, to inform the destination that the source peer has disconnected.
-        _proxySourceToDestinations[proxyMessage.source].insert(proxyMessage.destination);
+        _proxySourceToDestinations[fromSimulationName][proxyMessage.source].insert(proxyMessage.destination);
 
         return;
     }
 
-    const bool isDestination = GetParticipantName() == proxyMessage.destination;
+    const bool isDestination = _participantName == proxyMessage.destination;
     if (isDestination)
     {
-        auto it = _participantNameToPeer.find(proxyMessage.source);
+        auto peer{FindPeerByName(_simulationName, proxyMessage.source)};
 
-        IVAsioPeer* peer{nullptr};
-
-        if (it == _participantNameToPeer.end())
+        if (peer == nullptr)
         {
             SilKit::Services::Logging::Debug(_logger, "Creating VAsioProxyPeer ({})", proxyMessage.source);
 
-            auto proxyPeer = std::make_shared<VAsioProxyPeer>(this, VAsioPeerInfo{}, from, _logger);
-            AddPeer(proxyPeer);
-
+            auto proxyPeer = std::make_unique<VAsioProxyPeer>(this, _participantName, VAsioPeerInfo{}, from, _logger);
             peer = proxyPeer.get();
-        }
-        else
-        {
-            peer = it->second;
+
+            AddPeer(std::move(proxyPeer));
         }
 
         // An empty payload signals shutdown of the proxied peer.
@@ -1548,7 +1577,7 @@ bool VAsioConnection::TryAddRemoteSubscriber(IVAsioPeer* from, const VAsioMsgSub
     if (wasAdded)
     {
         Services::Logging::Debug(_logger, "Messages of type '{}' on link '{}' will be sent to participant '{}'",
-                                 from->GetInfo().participantName, subscriber.msgTypeName, subscriber.networkName);
+                                 subscriber.msgTypeName, subscriber.networkName, from->GetInfo().participantName);
     }
     else
     {
@@ -1586,7 +1615,31 @@ void VAsioConnection::RegisterMessageReceiver(std::function<void(IVAsioPeer* pee
 void VAsioConnection::ReceiveRegistryMessage(IVAsioPeer* from, SerializedMessage&& buffer)
 {
     const auto header = buffer.GetRegistryMessageHeader();
-    if (header.preamble != REGISTRY_MESSAGE_HEADER_PREAMBLE_VALUE)
+
+    const auto PreambleIsPresent = [](const ProtocolVersion& version, const SerializedMessage& buffer) -> bool {
+        const auto kind{buffer.GetRegistryKind()};
+
+        if (version == ProtocolVersion{3, 0})
+        {
+            if (kind == RegistryMessageKind::ParticipantAnnouncementReply)
+            {
+                return false;
+            }
+        }
+
+        if (version == ProtocolVersion{3, 1})
+        {
+            if (kind == RegistryMessageKind::RemoteParticipantConnectRequest)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    if (PreambleIsPresent(from->GetProtocolVersion(), buffer)
+        && header.preamble != REGISTRY_MESSAGE_HEADER_PREAMBLE_VALUE)
     {
         Services::Logging::Warn(_logger, "Ignoring registry message from '{}' with invalid preamble {}",
                                 from->GetInfo().participantName, header.preamble);
@@ -1606,7 +1659,7 @@ void VAsioConnection::ReceiveRegistryMessage(IVAsioPeer* from, SerializedMessage
     case RegistryMessageKind::KnownParticipants:
         return ReceiveKnownParticpants(from, std::move(buffer));
     case RegistryMessageKind::RemoteParticipantConnectRequest:
-        return ReceiveRemoteParticipantConnectRequest(std::move(buffer));
+        return ReceiveRemoteParticipantConnectRequest(from, std::move(buffer));
     }
 }
 
@@ -1694,20 +1747,80 @@ void VAsioConnection::AsyncSubscriptionsCompleted()
     _hasPendingAsyncSubscriptions = false;
 }
 
-bool VAsioConnection::ParticiantHasCapability(const std::string& participantName, const std::string& capability) const
+bool VAsioConnection::ParticipantHasCapability(const std::string& participantName, const std::string& capability) const
 {
-    const auto it = _participantNameToPeer.find(participantName);
-    if (it == _participantNameToPeer.end())
+    const auto peer{FindPeerByName(_simulationName, participantName)};
+    if (peer == nullptr)
     {
-        SilKit::Services::Logging::Warn(_logger, "GetParticiantCapabilities: Participant '{}' unknown",
-                                        participantName);
+        SilKit::Services::Logging::Warn(_logger, "ParticipantHasCapability: Participant '{}' unknown", participantName);
         return false;
     }
-    else
+
+    auto capabilities = SilKit::Core::VAsioCapabilities{peer->GetInfo().capabilities};
+    return capabilities.HasCapability(capability);
+}
+
+
+auto VAsioConnection::GetIoContext() -> IIoContext*
+{
+    return _ioContext.get();
+}
+
+
+auto VAsioConnection::MakePeerInfo() -> VAsioPeerInfo
+{
+    VAsioPeerInfo peerInfo;
+
+    peerInfo.participantName = _participantName;
+    peerInfo.participantId = _participantId;
+
     {
-        auto capabilities = SilKit::Core::VAsioCapabilities{it->second->GetInfo().capabilities};
-        return capabilities.HasCapability(capability);
+        std::lock_guard<decltype(_acceptorsMutex)> lock{_acceptorsMutex};
+
+        // Ensure that the local acceptors are the first entries in the acceptorUris
+        for (const auto& acceptor : _acceptors)
+        {
+            Uri uri{acceptor->GetLocalEndpoint()};
+
+            if (uri.Type() != Uri::UriType::Local)
+            {
+                continue;
+            }
+
+            peerInfo.acceptorUris.emplace_back(uri.EncodedString());
+        }
+
+        for (const auto& acceptor : _acceptors)
+        {
+            Uri uri{acceptor->GetLocalEndpoint()};
+
+            if (uri.Type() != Uri::UriType::Tcp)
+            {
+                continue;
+            }
+
+            peerInfo.acceptorUris.emplace_back(uri.EncodedString());
+        }
     }
+
+    peerInfo.capabilities = MakeCapabilitiesStringFromConfiguration(_config);
+
+    return peerInfo;
+}
+
+
+auto VAsioConnection::MakeConnectPeer(const VAsioPeerInfo& peerInfo) -> std::unique_ptr<IConnectPeer>
+{
+    auto connectPeer{
+        std::make_unique<ConnectPeer>(_ioContext.get(), _logger, peerInfo, _config.middleware.enableDomainSockets)};
+    return connectPeer;
+}
+
+
+auto VAsioConnection::MakeVAsioPeer(std::unique_ptr<IRawByteStream> stream) -> std::unique_ptr<IVAsioPeer>
+{
+    auto vAsioPeer{std::make_unique<VAsioPeer>(this, _ioContext.get(), std::move(stream), _logger)};
+    return vAsioPeer;
 }
 
 
@@ -1716,13 +1829,13 @@ bool VAsioConnection::ParticiantHasCapability(const std::string& participantName
 
 void VAsioConnection::OnAsyncAcceptSuccess(IAcceptor& acceptor, std::unique_ptr<IRawByteStream> stream)
 {
-    SILKIT_TRACE_METHOD(_logger, "({})", static_cast<const void*>(&acceptor));
+    SILKIT_TRACE_METHOD_(_logger, "({})", static_cast<const void*>(&acceptor));
 
     Services::Logging::Debug(_logger, "New connection from [local={}, remote={}]", stream->GetLocalEndpoint(), stream->GetRemoteEndpoint());
 
     try
     {
-        auto vAsioPeer{VAsioPeer::Create(std::move(stream), this, _logger)};
+        auto vAsioPeer{MakeVAsioPeer(std::move(stream))};
         AddPeer(std::move(vAsioPeer));
     }
     catch (const std::exception& exception)
@@ -1737,7 +1850,7 @@ void VAsioConnection::OnAsyncAcceptSuccess(IAcceptor& acceptor, std::unique_ptr<
 
 void VAsioConnection::OnAsyncAcceptFailure(IAcceptor& acceptor)
 {
-    SILKIT_TRACE_METHOD(_logger, "({})", static_cast<const void*>(&acceptor));
+    SILKIT_TRACE_METHOD_(_logger, "({})", static_cast<const void*>(&acceptor));
 
     {
         std::unique_lock<decltype(_acceptorsMutex)> lock{_acceptorsMutex};
@@ -1754,17 +1867,185 @@ void VAsioConnection::OnAsyncAcceptFailure(IAcceptor& acceptor)
 }
 
 
-// ITimerListener
+// IConnectionManagerListener
 
 
-void VAsioConnection::OnTimerExpired(ITimer& timer)
+void VAsioConnection::OnConnectKnownParticipantsFailure(ConnectKnownParticipants& connectKnownParticipants)
 {
-    SILKIT_UNUSED_ARG(timer);
-    SILKIT_TRACE_METHOD(_logger, "({})", static_cast<const void*>(&timer));
+    auto message{fmt::format("Failed to connect to known participants: {}", connectKnownParticipants.Describe())};
+    _logger->Error(message);
 
-    HandleExpiredConnection();
+    try
+    {
+        _startWaitingForParticipantHandshakes.set_exception(std::make_exception_ptr(SilKit::ProtocolError{message}));
+    }
+    catch (...)
+    {
+    }
+
+    try
+    {
+        _allKnownParticipantHandshakesComplete.set_exception(std::make_exception_ptr(SilKit::ProtocolError{message}));
+    }
+    catch (...)
+    {
+    }
+}
+
+void VAsioConnection::OnConnectKnownParticipantsWaitingForAllReplies(ConnectKnownParticipants&)
+{
+    Log::Debug(_logger, "Waiting for completion of all handshakes with all known participants");
+
+    try
+    {
+        _startWaitingForParticipantHandshakes.set_value();
+    }
+    catch (...)
+    {
+    }
+}
+
+void VAsioConnection::OnConnectKnownParticipantsAllRepliesReceived(ConnectKnownParticipants&)
+{
+    Log::Debug(_logger, "All handshakes with all known participants are complete");
+
+    try
+    {
+        _allKnownParticipantHandshakesComplete.set_value();
+    }
+    catch (...)
+    {
+    }
+}
+
+
+void VAsioConnection::OnRemoteConnectionSuccess(std::unique_ptr<SilKit::Core::IVAsioPeer> vAsioPeer)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({})", vAsioPeer->GetInfo().participantName);
+
+    RemoteParticipantConnectRequest msg;
+    msg.messageHeader = MakeRegistryMsgHeader(_version);
+    msg.requestOrigin = vAsioPeer->GetInfo();
+    msg.requestTarget = MakePeerInfo();
+    msg.status = RemoteParticipantConnectRequest::ANNOUNCEMENT;
+
+    SerializedMessage buffer{msg};
+    vAsioPeer->SendSilKitMsg(std::move(buffer));
+
+    AddPeer(std::move(vAsioPeer));
+}
+
+void VAsioConnection::OnRemoteConnectionFailure(SilKit::Core::VAsioPeerInfo peerInfo)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({})", peerInfo.participantName);
+
+    RemoteParticipantConnectRequest msg;
+    msg.messageHeader = MakeRegistryMsgHeader(_version);
+    msg.requestOrigin = std::move(peerInfo);
+    msg.requestTarget = MakePeerInfo();
+    msg.status = RemoteParticipantConnectRequest::FAILED_TO_CONNECT;
+
+    SerializedMessage buffer{msg};
+    _registry->SendSilKitMsg(std::move(buffer));
+}
+
+
+bool VAsioConnection::TryRemoteConnectRequest(VAsioPeerInfo const& peerInfo)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({})", peerInfo.participantName);
+
+    SilKit::Services::Logging::Debug(_logger, "Trying to request remote connection from {} via the registry",
+                                    peerInfo.participantName);
+
+    if (!_capabilities.HasCapability(Capabilities::RequestParticipantConnection))
+    {
+        SilKit::Services::Logging::Warn(
+            _logger, "Cannot request remote connection from {}, because it is disabled in the configuration",
+            peerInfo.participantName);
+
+        return false;
+    }
+
+    try
+    {
+        const VAsioCapabilities peerCapabilities{peerInfo.capabilities};
+        if (!peerCapabilities.HasCapability(Capabilities::RequestParticipantConnection))
+        {
+            SilKit::Services::Logging::Warn(_logger,
+                                            "Cannot request remote connection from {}, because {} does not support it",
+                                            peerInfo.participantName, peerInfo.participantName);
+
+            return false;
+        }
+    }
+    catch (const std::exception& error)
+    {
+        SilKit::Services::Logging::Error(_logger, "Failed to parse capabilities string: {}", error.what());
+        return false;
+    }
+    catch (...)
+    {
+        SilKit::Services::Logging::Error(_logger, "Failed to parse capabilities string: unknown error");
+        return false;
+    }
+
+    RemoteParticipantConnectRequest request;
+    request.messageHeader = MakeRegistryMsgHeader(_version);
+    request.requestOrigin = MakePeerInfo();
+    request.requestTarget = peerInfo;
+    request.status = RemoteParticipantConnectRequest::REQUEST;
+
+    SerializedMessage buffer{request};
+    _registry->SendSilKitMsg(std::move(buffer));
+
+    return true;
+}
+
+
+bool VAsioConnection::TryProxyConnect(VAsioPeerInfo const& peerInfo)
+{
+    SILKIT_TRACE_METHOD_(_logger, "({})", peerInfo.participantName);
+
+    SilKit::Services::Logging::Debug(_logger, "Trying to use the registry as a proxy to communicate with {}",
+                                    peerInfo.participantName);
+
+    // NB: Cannot check the capabilities of the registry, since we do not receive the PeerInfo from the
+    //       registry over the network, but build it ourselves in VAsioConnection::JoinSimulation.
+    //       This is not be a huge issue, since we can just 'throw the messages at the registry' and will
+    //       fail with the participant-connection-timeout if it is not capable of routing it to the other
+    //       participant.
+
+    if (!_capabilities.HasProxyMessageCapability())
+    {
+        SilKit::Services::Logging::Warn(
+            _logger,
+            "Cannot use the registry as a proxy to communicate with {}, because it is disabled in the configuration",
+            peerInfo.participantName);
+
+        return false;
+    }
+
+    const VAsioCapabilities peerCapabilities{peerInfo.capabilities};
+    if (!peerCapabilities.HasCapability(Capabilities::ProxyMessage))
+    {
+        SilKit::Services::Logging::Warn(_logger,
+                                        "VAsioConnection: Cannot use the registry as a proxy to communicate with {}, "
+                                        "because {} does not support it",
+                                        peerInfo.participantName, peerInfo.participantName);
+
+        return false;
+    }
+
+    auto peer{std::make_unique<VAsioProxyPeer>(this, _participantName, peerInfo, _registry.get(), _logger)};
+    HandleConnectedPeer(peer.get());
+    AddPeer(std::move(peer));
+
+    return true;
 }
 
 
 } // namespace Core
 } // namespace SilKit
+
+
+#undef SILKIT_TRACE_METHOD_
