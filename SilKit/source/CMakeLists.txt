@@ -41,10 +41,8 @@ set(GIT_DIR "${PROJECT_SOURCE_DIR}/../.git")
 set(GIT_HEAD_FILE "${GIT_DIR}/HEAD")
 set(VERSION_MACROS_HPP ${CMAKE_CURRENT_BINARY_DIR}/version_macros.hpp)
 if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp)
-    message(STATUS "SILKIT re-using deployed version_macros.hpp")
-    set(VERSION_MACROS_HPP ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp
-        CreateSilKitRegistryWithDashboard.cpp
-        CreateSilKitRegistryWithDashboard.hpp)
+    message(STATUS "SILKIT: using deployed version_macros.hpp")
+    set(VERSION_MACROS_HPP ${CMAKE_CURRENT_LIST_DIR}/version_macros.hpp)
 elseif(EXISTS "${GIT_HEAD_FILE}")
     configure_file(
         "MakeVersionMacros.cmake.in"
@@ -60,7 +58,7 @@ elseif(EXISTS "${GIT_HEAD_FILE}")
         )
     endif()
 else()
-    message(WARNING "Cannot determine hash of current git head!")
+    message(STATUS "SILKIT: Cannot determine hash of current git head! GIT_HEAD_HASH will be set to UNKNOWN")
     set(GIT_HEAD_HASH "UNKNOWN")
     configure_file(
         version_macros.hpp.in
@@ -176,6 +174,7 @@ list(APPEND SilKitImplObjectLibraries
     O_SilKit_Core_VAsio
     O_SilKit_Experimental
     O_SilKit_Extensions
+    O_SilKit_Experimental_NetworkSimulatorInternals
     O_SilKit_Services_Can
     O_SilKit_Services_Ethernet
     O_SilKit_Services_Flexray
@@ -188,6 +187,7 @@ list(APPEND SilKitImplObjectLibraries
     O_SilKit_Util_FileHelpers
     O_SilKit_Util_Filesystem
     O_SilKit_Util_SetThreadName
+    O_SilKit_Util_SignalHandler
     O_SilKit_Util_Uuid
     O_SilKit_Util_Uri
     O_SilKit_Util_LabelMatching
@@ -254,6 +254,7 @@ elseif(UNIX AND NOT APPLE)
 		    PRIVATE -Wl,--build-id=sha1)
 	    endif()
     endif()
+    target_link_options(SilKit PRIVATE "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/silkit.map")
 endif()
 
 if ((CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang) AND NOT SILKIT_USE_SYSTEM_LIBRARIES)

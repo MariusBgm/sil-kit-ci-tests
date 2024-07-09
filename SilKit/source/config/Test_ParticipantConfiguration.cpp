@@ -61,8 +61,9 @@ protected:
 
 TEST_F(Test_ParticipantConfiguration, throw_if_logging_is_configured_without_filename)
 {
-    EXPECT_THROW(SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_Logging_Without_File.json"),
-                 SilKit::ConfigurationError);
+    EXPECT_THROW(
+        SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_Logging_Without_File.json"),
+        SilKit::ConfigurationError);
 }
 
 TEST_F(Test_ParticipantConfiguration, minimal_configuration_file)
@@ -75,6 +76,135 @@ TEST_F(Test_ParticipantConfiguration, full_configuration_file)
 {
     auto cfg = SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_Full.json");
     CreateParticipantFromConfiguration(cfg);
+}
+
+TEST_F(Test_ParticipantConfiguration, full_configuration_file_with_includes)
+{
+    auto cfg = SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_FullIncludes.yaml");
+    auto ref_cfg =
+        SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_FullIncludes_Reference.yaml");
+
+    // cast to ParticipantConfiguration to use right equal operator
+    auto participantConfig = *std::dynamic_pointer_cast<ParticipantConfiguration>(cfg);
+    auto participantConfigRef = *std::dynamic_pointer_cast<ParticipantConfiguration>(ref_cfg);
+
+    ASSERT_TRUE(participantConfig == participantConfigRef);
+}
+
+TEST_F(Test_ParticipantConfiguration, participant_config_multiple_acceptor_uris)
+{
+    EXPECT_THROW(
+        SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_MultipleAcceptorUris.yaml"),
+        SilKit::ConfigurationError);
+}
+
+TEST_F(Test_ParticipantConfiguration, participant_config_duplicate_controller_names)
+{
+    EXPECT_THROW(
+        SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_DuplicateControllerNames.yaml"),
+        SilKit::ConfigurationError);
+}
+
+TEST_F(Test_ParticipantConfiguration, participant_config_from_string)
+{
+    const auto configString = R"raw(
+---
+Description: Example include configuration for CAN Controllers
+CanControllers:
+- Name: CAN1
+  Replay:
+    UseTraceSource: Source1
+    Direction: Both
+    MdfChannel:
+      ChannelName: MyTestChannel1
+      ChannelPath: path/to/myTestChannel1
+      ChannelSource: MyTestChannel
+      GroupName: MyTestGroup
+      GroupPath: path/to/myTestGroup1
+      GroupSource: MyTestGroup
+  UseTraceSinks:
+  - Sink1
+- Name: MyCAN2
+  Network: CAN2
+    )raw";
+
+    auto cfg = SilKit::Config::ParticipantConfigurationFromStringImpl(configString);
+    auto ref_cfg =
+        SilKit::Config::ParticipantConfigurationFromFileImpl("ParticipantConfiguration_FromString_Reference.yaml");
+
+    // cast to ParticipantConfiguration to use right equal operator
+    auto participantConfig = *std::dynamic_pointer_cast<ParticipantConfiguration>(cfg);
+    auto participantConfigRef = *std::dynamic_pointer_cast<ParticipantConfiguration>(ref_cfg);
+
+    ASSERT_TRUE(participantConfig == participantConfigRef);
+}
+TEST_F(Test_ParticipantConfiguration, participant_config_from_string_includes)
+{
+    const auto configString = R"raw(
+---
+Description: Example include configuration for CAN Controllers
+Includes:
+  SearchPathHints:
+    - ConfigSnippets/CAN
+  Files:
+      - CanInclude5.yaml
+CanControllers:
+- Name: CAN1
+  Replay:
+    UseTraceSource: Source1
+    Direction: Both
+    MdfChannel:
+      ChannelName: MyTestChannel1
+      ChannelPath: path/to/myTestChannel1
+      ChannelSource: MyTestChannel
+      GroupName: MyTestGroup
+      GroupPath: path/to/myTestGroup1
+      GroupSource: MyTestGroup
+  UseTraceSinks:
+  - Sink1
+- Name: MyCAN2
+  Network: CAN2
+    )raw";
+
+    const auto configStringRef = R"raw(
+---
+Description: Example include configuration for CAN Controllers
+CanControllers:
+- Name: CAN1
+  Replay:
+    UseTraceSource: Source1
+    Direction: Both
+    MdfChannel:
+      ChannelName: MyTestChannel1
+      ChannelPath: path/to/myTestChannel1
+      ChannelSource: MyTestChannel
+      GroupName: MyTestGroup
+      GroupPath: path/to/myTestGroup1
+      GroupSource: MyTestGroup
+  UseTraceSinks:
+  - Sink1
+- Name: MyCAN2
+  Network: CAN2
+- Name: CAN64
+  Replay:
+    UseTraceSource: Source1
+    Direction: Both
+    MdfChannel:
+      ChannelName: MyTestChannel64
+      ChannelPath: path/to/myTestChannel64
+      ChannelSource: MyTestChannel
+      GroupName: MyTestGroup
+      GroupPath: path/to/myTestGroup64
+      GroupSource: MyTestGroup
+    )raw";
+
+    auto cfg = SilKit::Config::ParticipantConfigurationFromStringImpl(configString);
+    auto cfgRef = SilKit::Config::ParticipantConfigurationFromStringImpl(configStringRef);
+
+    // cast to ParticipantConfiguration to use right equal operator
+    auto config = *std::dynamic_pointer_cast<ParticipantConfiguration>(cfg);
+    auto configRef = *std::dynamic_pointer_cast<ParticipantConfiguration>(cfgRef);
+    ASSERT_TRUE(config == configRef);
 }
 
 /*

@@ -84,7 +84,7 @@ void LifecycleManagement::Restart(std::string reason)
     _currentState->RestartParticipant(std::move(reason));
 }
 
-void LifecycleManagement::Shutdown(std::string reason) 
+void LifecycleManagement::Shutdown(std::string reason)
 {
     _currentState->ShutdownParticipant(std::move(reason));
 }
@@ -251,9 +251,9 @@ void LifecycleManagement::StartTime()
     (dynamic_cast<TimeSyncService*>(_lifecycleService->GetTimeSyncService()))->StartTime();
 }
 
-void LifecycleManagement::SetAsyncSubscriptionsCompletionHandler(std::function<void()> handler)
+void LifecycleManagement::AddAsyncSubscriptionsCompletionHandler(std::function<void()> handler)
 {
-    _lifecycleService->SetAsyncSubscriptionsCompletionHandler(std::move(handler));
+    _lifecycleService->AddAsyncSubscriptionsCompletionHandler(std::move(handler));
 }
 
 void LifecycleManagement::SetState(ILifecycleState* newState, std::string reason)
@@ -263,7 +263,7 @@ void LifecycleManagement::SetState(ILifecycleState* newState, std::string reason
 }
 
 void LifecycleManagement::SetStateAndForwardIntent(ILifecycleState* newState,
-                                                 void (ILifecycleState::*intent)(std::string), std::string reason)
+                                                   void (ILifecycleState::*intent)(std::string), std::string reason)
 {
     UpdateLifecycleState(newState);
     // NB: UpdateParticipantState can alter _currentState if the ParticipantState change causes a SystemState change.

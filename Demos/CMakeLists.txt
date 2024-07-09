@@ -124,6 +124,11 @@ macro(make_silkit_demo executableName demoSourceFile)
             SilKit::SilKit 
             Threads::Threads
     )
+
+    if(MSVC)
+        target_compile_options(${executableName} PRIVATE /wd4996)
+    endif()
+
     add_dependencies(Demos ${executableName})
     set(demo_list "${demo_list} ${executableName}" PARENT_SCOPE)
 endmacro()
@@ -139,6 +144,7 @@ add_subdirectory(Lin)
 add_subdirectory(PubSub)
 add_subdirectory(Rpc)
 add_subdirectory(Benchmark)
+add_subdirectory(NetworkSimulator)
 
 message(STATUS "Demos available: ${demo_list}")
 #######################################################################################################################

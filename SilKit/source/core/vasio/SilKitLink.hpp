@@ -42,14 +42,24 @@ public:
 public:
     // ----------------------------------------
     // Constructors and Destructor
-    SilKitLink(std::string name, Services::Logging::ILogger* logger, Services::Orchestration::ITimeProvider* timeProvider);
+    SilKitLink(std::string name, Services::Logging::ILogger* logger,
+               Services::Orchestration::ITimeProvider* timeProvider);
 
 public:
     // ----------------------------------------
     // Public methods
-    static constexpr auto MsgTypeName() -> const char* { return SilKitMsgTraits<MsgT>::TypeName(); }
-    static constexpr auto MessageSerdesName() -> const char* { return SilKitMsgTraits<MsgT>::SerdesName(); }
-    inline auto Name() const -> const std::string& { return _name; }
+    static constexpr auto MsgTypeName() -> const char*
+    {
+        return SilKitMsgTraits<MsgT>::TypeName();
+    }
+    static constexpr auto MessageSerdesName() -> const char*
+    {
+        return SilKitMsgTraits<MsgT>::SerdesName();
+    }
+    inline auto Name() const -> const std::string&
+    {
+        return _name;
+    }
 
     void AddLocalReceiver(ReceiverT* receiver);
     void AddRemoteReceiver(IVAsioPeer* peer, EndpointId remoteIdx);
@@ -62,12 +72,14 @@ public:
 
     void SetHistoryLength(size_t history);
 
-    void DispatchSilKitMessageToTarget(const IServiceEndpoint* from, const std::string& targetParticipantName, const MsgT& msg);
+    void DispatchSilKitMessageToTarget(const IServiceEndpoint* from, const std::string& targetParticipantName,
+                                       const MsgT& msg);
 
 private:
     // ----------------------------------------
     // private methods
     void DispatchSilKitMessage(ReceiverT* to, const IServiceEndpoint* from, const MsgT& msg);
+    void DistributeToSelf(const IServiceEndpoint* from, const MsgT& msg);
 
 private:
     // ----------------------------------------
@@ -84,7 +96,8 @@ private:
 //  Inline Implementations
 // ================================================================================
 template <class MsgT>
-SilKitLink<MsgT>::SilKitLink(std::string name, Services::Logging::ILogger* logger, Services::Orchestration::ITimeProvider* timeProvider)
+SilKitLink<MsgT>::SilKitLink(std::string name, Services::Logging::ILogger* logger,
+                             Services::Orchestration::ITimeProvider* timeProvider)
     : _name{std::move(name)}
     , _logger{logger}
     , _timeProvider{timeProvider}
@@ -94,7 +107,8 @@ SilKitLink<MsgT>::SilKitLink(std::string name, Services::Logging::ILogger* logge
 template <class MsgT>
 void SilKitLink<MsgT>::AddLocalReceiver(ReceiverT* receiver)
 {
-    if (std::find(_localReceivers.begin(), _localReceivers.end(), receiver) != _localReceivers.end()) return;
+    if (std::find(_localReceivers.begin(), _localReceivers.end(), receiver) != _localReceivers.end())
+        return;
     _localReceivers.push_back(receiver);
 }
 
@@ -134,7 +148,8 @@ void SetTimestamp(MsgT& msg, std::chrono::nanoseconds value, std::enable_if_t<Ha
 }
 
 template <typename MsgT>
-void SetTimestamp(MsgT& /*msg*/, std::chrono::nanoseconds /*value*/, std::enable_if_t<!HasTimestamp<MsgT>::value, bool> = false)
+void SetTimestamp(MsgT& /*msg*/, std::chrono::nanoseconds /*value*/,
+                  std::enable_if_t<!HasTimestamp<MsgT>::value, bool> = false)
 {
 }
 
@@ -161,6 +176,12 @@ void SilKitLink<MsgT>::DistributeLocalSilKitMessage(const IServiceEndpoint* from
     // Otherwise, messages that may be produced during the internal dispatch will be dispatched to remote receivers first.
     // As a result, the messages may be delivered in the wrong order (possibly even reversed)
     DispatchSilKitMessage(&_vasioTransmitter, from, msg);
+    DistributeToSelf(from, msg);
+}
+
+template <class MsgT>
+void SilKitLink<MsgT>::DistributeToSelf(const IServiceEndpoint* from, const MsgT& msg)
+{
     for (auto&& receiver : _localReceivers)
     {
         auto* receiverId = dynamic_cast<const IServiceEndpoint*>(receiver);
@@ -173,7 +194,8 @@ void SilKitLink<MsgT>::DistributeLocalSilKitMessage(const IServiceEndpoint* from
         // C++ 17 -> if constexpr
         if (!SilKitMsgTraits<MsgT>::IsSelfDeliveryEnforced())
         {
-            if (receiverId->GetServiceDescriptor() == from->GetServiceDescriptor()) continue;
+            if (receiverId->GetServiceDescriptor() == from->GetServiceDescriptor())
+                continue;
         }
         // Trace reception of self delivery
         Services::TraceRx(_logger, receiverId, msg, from->GetServiceDescriptor());
@@ -192,7 +214,8 @@ void SilKitLink<MsgT>::DispatchSilKitMessage(ReceiverT* to, const IServiceEndpoi
     }
     catch (const std::exception& e)
     {
-        Services::Logging::Warn(_logger, "Callback for {}[\"{}\"] threw an exception: {}", MsgTypeName(), Name(), e.what());
+        Services::Logging::Warn(_logger, "Callback for {}[\"{}\"] threw an exception: {}", MsgTypeName(), Name(),
+                                e.what());
     }
     catch (...)
     {
@@ -201,9 +224,17 @@ void SilKitLink<MsgT>::DispatchSilKitMessage(ReceiverT* to, const IServiceEndpoi
 }
 
 template <class MsgT>
-void SilKitLink<MsgT>::DispatchSilKitMessageToTarget(const IServiceEndpoint* from, const std::string& targetParticipantName, const MsgT& msg)
+void SilKitLink<MsgT>::DispatchSilKitMessageToTarget(const IServiceEndpoint* from,
+                                                     const std::string& targetParticipantName, const MsgT& msg)
 {
-    _vasioTransmitter.SendMessageToTarget(from, targetParticipantName, msg);
+    if (from->GetServiceDescriptor().GetParticipantName() == targetParticipantName)
+    {
+        DistributeToSelf(from, msg);
+    }
+    else
+    {
+        _vasioTransmitter.SendMessageToTarget(from, targetParticipantName, msg);
+    }
 }
 
 template <class MsgT>

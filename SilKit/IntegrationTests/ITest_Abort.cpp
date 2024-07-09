@@ -75,10 +75,10 @@ TEST_F(ITest_Abort, test_Abort_Paused_Simulation_Sync)
         required.push_back(p.name);
     }
     RunParticipants(monitorParticipants);
-	for (auto& p : monitorParticipants)
-	{
-		p.AwaitRunning();
-	}
+    for (auto& p : monitorParticipants)
+    {
+        p.AwaitRunning();
+    }
 
     RunSystemController(required);
     RunParticipants(syncParticipants);
@@ -216,10 +216,14 @@ TEST_F(ITest_Abort, test_Abort_Stopped_Simulation_Sync)
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::CommunicationInitialized)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ReadyToRun)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Running)).Times(size);
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Aborting)).Times(size);
+    // The system controller stops the simulation and aborts in the stop handler.
+    // However it can happen that a participant is done with the stop before the abort arrives.
+    // Thus we can only expect 1 to N aborts.
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Aborting)).Times(Between(1, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopping)).Times(Between(1, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Stopped)).Times(Between(0, size));
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ShuttingDown)).Times(0);
+    // A participant may stop and shut down before the abort arrives. In this case ShuttingDown is reached.
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ShuttingDown)).Times(Between(0, size));
 
     std::list<TestParticipant> monitorParticipants;
     monitorParticipants.push_back({"MonitorParticipant1", TimeMode::Async, OperationMode::Autonomous});
@@ -239,9 +243,8 @@ TEST_F(ITest_Abort, test_Abort_Stopped_Simulation_Sync)
         required.push_back(p.name);
     }
     auto setup = [this]() {
-        systemControllerParticipant.lifecycleService->SetStopHandler([this]() {
-            this->systemControllerParticipant.systemController->AbortSimulation();
-        });
+        systemControllerParticipant.lifecycleService->SetStopHandler(
+            [this]() { this->systemControllerParticipant.systemController->AbortSimulation(); });
     };
 
     // Each participant knows that all other participants have started.
@@ -287,24 +290,20 @@ TEST_F(ITest_Abort, test_Abort_Communication_Ready_Simulation_Sync)
     // state.
     int size = static_cast<int>(syncParticipants.size() + 1); // include system controller
     int requiredParticipantsSize = static_cast<int>(syncParticipants.size());
-    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::ServicesCreated))
-        .Times(Between(0, size));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::ServicesCreated)).Times(Between(0, size));
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::CommunicationInitializing))
         .Times(Between(0, requiredParticipantsSize));
-    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::CommunicationInitialized))
-        .Times(Between(0, size));
+    EXPECT_CALL(callbacks, AbortHandler(ParticipantState::CommunicationInitialized)).Times(Between(0, size));
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::ReadyToRun)).Times(Between(0, size));
     EXPECT_CALL(callbacks, AbortHandler(ParticipantState::Running)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Shutdown)).Times(size);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Error)).Times(0);
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Invalid)).Times(0);
 
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ServicesCreated))
-        .Times(Between(1, size));
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ServicesCreated)).Times(Between(1, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::CommunicationInitializing))
         .Times(Between(1, size));
-    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::CommunicationInitialized))
-        .Times(Between(1, size));
+    EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::CommunicationInitialized)).Times(Between(1, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::ReadyToRun)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Running)).Times(Between(0, size));
     EXPECT_CALL(callbacks, ParticipantStateHandler(ParticipantState::Aborting)).Times(size);
@@ -330,9 +329,8 @@ TEST_F(ITest_Abort, test_Abort_Communication_Ready_Simulation_Sync)
         required.push_back(p.name);
     }
     auto setup = [this]() {
-        systemControllerParticipant.lifecycleService->SetCommunicationReadyHandler([this]() {
-            this->systemControllerParticipant.systemController->AbortSimulation();
-        });
+        systemControllerParticipant.lifecycleService->SetCommunicationReadyHandler(
+            [this]() { this->systemControllerParticipant.systemController->AbortSimulation(); });
     };
     RunParticipants(syncParticipants);
     RunSystemController(required, setup);

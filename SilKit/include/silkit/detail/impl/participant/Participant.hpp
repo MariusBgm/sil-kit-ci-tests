@@ -51,6 +51,7 @@
 
 #include "silkit/detail/impl/experimental/services/orchestration/SystemController.hpp"
 
+#include "silkit/detail/impl/netsim/NetworkSimulator.hpp"
 
 namespace SilKit {
 DETAIL_SILKIT_DETAIL_VN_NAMESPACE_BEGIN
@@ -63,8 +64,8 @@ public:
 
     inline ~Participant() override;
 
-    inline auto CreateCanController(const std::string& canonicalName, const std::string& networkName)
-        -> SilKit::Services::Can::ICanController* override;
+    inline auto CreateCanController(const std::string& canonicalName,
+                                    const std::string& networkName) -> SilKit::Services::Can::ICanController* override;
 
     inline auto CreateEthernetController(const std::string& canonicalName, const std::string& networkName)
         -> SilKit::Services::Ethernet::IEthernetController* override;
@@ -72,22 +73,25 @@ public:
     inline auto CreateFlexrayController(const std::string& canonicalName, const std::string& networkName)
         -> SilKit::Services::Flexray::IFlexrayController* override;
 
-    inline auto CreateLinController(const std::string& canonicalName, const std::string& networkName)
-        -> SilKit::Services::Lin::ILinController* override;
+    inline auto CreateLinController(const std::string& canonicalName,
+                                    const std::string& networkName) -> SilKit::Services::Lin::ILinController* override;
 
-    inline auto CreateDataPublisher(const std::string& canonicalName, const SilKit::Services::PubSub::PubSubSpec& dataSpec,
-                             size_t history) -> SilKit::Services::PubSub::IDataPublisher* override;
+    inline auto CreateDataPublisher(const std::string& canonicalName,
+                                    const SilKit::Services::PubSub::PubSubSpec& dataSpec,
+                                    size_t history) -> SilKit::Services::PubSub::IDataPublisher* override;
 
-    inline auto CreateDataSubscriber(const std::string& canonicalName, const SilKit::Services::PubSub::PubSubSpec& dataSpec,
-                              SilKit::Services::PubSub::DataMessageHandler dataMessageHandler)
+    inline auto CreateDataSubscriber(const std::string& canonicalName,
+                                     const SilKit::Services::PubSub::PubSubSpec& dataSpec,
+                                     SilKit::Services::PubSub::DataMessageHandler dataMessageHandler)
         -> SilKit::Services::PubSub::IDataSubscriber* override;
 
     inline auto CreateRpcClient(const std::string& canonicalName, const SilKit::Services::Rpc::RpcSpec& dataSpec,
-                         SilKit::Services::Rpc::RpcCallResultHandler handler)
+                                SilKit::Services::Rpc::RpcCallResultHandler handler)
         -> SilKit::Services::Rpc::IRpcClient* override;
 
     inline auto CreateRpcServer(const std::string& canonicalName, const SilKit::Services::Rpc::RpcSpec& dataSpec,
-                         SilKit::Services::Rpc::RpcCallHandler handler) -> SilKit::Services::Rpc::IRpcServer* override;
+                                SilKit::Services::Rpc::RpcCallHandler handler)
+        -> SilKit::Services::Rpc::IRpcServer* override;
 
     inline auto CreateLifecycleService(SilKit::Services::Orchestration::LifecycleConfiguration startConfiguration)
         -> SilKit::Services::Orchestration::ILifecycleService* override;
@@ -96,7 +100,8 @@ public:
 
     inline auto GetLogger() -> SilKit::Services::Logging::ILogger* override;
 
-public:
+    inline auto ExperimentalCreateNetworkSimulator() -> SilKit::Experimental::NetworkSimulation::INetworkSimulator*;
+
     inline auto ExperimentalCreateSystemController()
         -> SilKit::Experimental::Services::Orchestration::ISystemController*;
 
@@ -134,6 +139,8 @@ private:
     std::unique_ptr<Impl::Experimental::Services::Orchestration::SystemController> _systemController;
 
     std::unique_ptr<Impl::Services::Logging::Logger> _logger;
+
+    std::unique_ptr<Impl::Experimental::NetworkSimulation::NetworkSimulator> _networkSimulator;
 };
 
 } // namespace Impl
@@ -163,8 +170,8 @@ Participant::~Participant()
     }
 }
 
-auto Participant::CreateCanController(const std::string& canonicalName, const std::string& networkName)
-    -> SilKit::Services::Can::ICanController*
+auto Participant::CreateCanController(const std::string& canonicalName,
+                                      const std::string& networkName) -> SilKit::Services::Can::ICanController*
 {
     return _canControllers.Create(_participant, canonicalName, networkName);
 }
@@ -181,23 +188,22 @@ auto Participant::CreateFlexrayController(const std::string& canonicalName, cons
     return _flexrayControllers.Create(_participant, canonicalName, networkName);
 }
 
-auto Participant::CreateLinController(const std::string& canonicalName, const std::string& networkName)
-    -> SilKit::Services::Lin::ILinController*
+auto Participant::CreateLinController(const std::string& canonicalName,
+                                      const std::string& networkName) -> SilKit::Services::Lin::ILinController*
 {
     return _linControllers.Create(_participant, canonicalName, networkName);
 }
 
 auto Participant::CreateDataPublisher(const std::string& canonicalName,
-                                      const SilKit::Services::PubSub::PubSubSpec& dataSpec, size_t history)
-    -> SilKit::Services::PubSub::IDataPublisher*
+                                      const SilKit::Services::PubSub::PubSubSpec& dataSpec,
+                                      size_t history) -> SilKit::Services::PubSub::IDataPublisher*
 {
     return _dataPublishers.Create(_participant, canonicalName, dataSpec, static_cast<uint8_t>(history & 0xff));
 }
 
-auto Participant::CreateDataSubscriber(const std::string& canonicalName,
-                                       const SilKit::Services::PubSub::PubSubSpec& dataSpec,
-                                       SilKit::Services::PubSub::DataMessageHandler dataMessageHandler)
-    -> SilKit::Services::PubSub::IDataSubscriber*
+auto Participant::CreateDataSubscriber(
+    const std::string& canonicalName, const SilKit::Services::PubSub::PubSubSpec& dataSpec,
+    SilKit::Services::PubSub::DataMessageHandler dataMessageHandler) -> SilKit::Services::PubSub::IDataSubscriber*
 {
     return _dataSubscribers.Create(_participant, canonicalName, dataSpec, std::move(dataMessageHandler));
 }
@@ -241,6 +247,13 @@ auto Participant::ExperimentalCreateSystemController()
     _systemController = std::make_unique<Impl::Experimental::Services::Orchestration::SystemController>(_participant);
 
     return _systemController.get();
+}
+
+auto Participant::ExperimentalCreateNetworkSimulator() -> SilKit::Experimental::NetworkSimulation::INetworkSimulator*
+{
+    _networkSimulator = std::make_unique<Impl::Experimental::NetworkSimulation::NetworkSimulator>(_participant);
+
+    return _networkSimulator.get();
 }
 
 auto Participant::Get() const -> SilKit_Participant*

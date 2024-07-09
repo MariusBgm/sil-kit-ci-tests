@@ -61,6 +61,7 @@ if(SILKIT_BUILD_LINUX_PACKAGE)
 
     message(NOTICE "  * SILKIT_BUILD_DASHBOARD      OFF")
     set(SILKIT_BUILD_DASHBOARD OFF CACHE BOOL "Force SILKIT_BUILD_DASHBOARD OFF due to SILKIT_BUILD_REPRODUCIBLE" FORCE)
+    add_subdirectory(docs/man)
 
 endif()
 
@@ -73,6 +74,9 @@ add_compile_definitions(
     ASIO_DISABLE_VISIBILITY=1
 )
 
+if(MINGW AND (CMAKE_CXX_COMPILER_ID MATCHES GNU OR CMAKE_CXX_COMPILER_ID MATCHES Clang))
+    add_compile_options("-Wa,-mbig-obj")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake ${CMAKE_CURRENT_LIST_DIR}/SilKit/cmake)
 include(SilKitInstall)
@@ -187,6 +191,7 @@ if(SILKIT_INSTALL_SOURCE)
             PATTERN *.cxx
             PATTERN *.c
             PATTERN *.rc
+            PATTERN *.map
             PATTERN *.h
             PATTERN *.hpp
             PATTERN *.hpp.in

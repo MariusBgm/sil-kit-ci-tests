@@ -34,6 +34,7 @@ FlexrayController::FlexrayController(Core::IParticipantInternal* participant, Co
                                      Services::Orchestration::ITimeProvider* /*timeProvider*/)
     : _participant(participant)
     , _config{std::move(config)}
+    , _logger{participant->GetLogger()}
 {
 }
 
@@ -44,27 +45,41 @@ FlexrayController::FlexrayController(Core::IParticipantInternal* participant, Co
 void FlexrayController::RegisterServiceDiscovery()
 {
     Core::Discovery::IServiceDiscovery* disc = _participant->GetServiceDiscovery();
-    disc->RegisterServiceDiscoveryHandler(
-        [this](Core::Discovery::ServiceDiscoveryEvent::Type discoveryType,
-                                  const Core::ServiceDescriptor& remoteServiceDescriptor) {
-            // check if discovered service is a network simulator (if none is known)
-            if (!_simulatedLinkDetected)
+    disc->RegisterServiceDiscoveryHandler([this](Core::Discovery::ServiceDiscoveryEvent::Type discoveryType,
+                                                 const Core::ServiceDescriptor& remoteServiceDescriptor) {
+        // check if discovered service is a network simulator (if none is known)
+        if (!_simulatedLinkDetected)
+        {
+            // check if received descriptor has a matching simulated link
+            if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceCreated
+                && IsRelevantNetwork(remoteServiceDescriptor))
             {
-                // check if received descriptor has a matching simulated link
-                if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceCreated
-                    && IsRelevantNetwork(remoteServiceDescriptor))
-                {
-                    SetDetailedBehavior(remoteServiceDescriptor);
-                }
+                Logging::Info(_logger,
+                              "Controller '{}' is using the simulated network '{}' and will route all messages to "
+                              "the network simulator '{}'",
+                              _config.name, remoteServiceDescriptor.GetNetworkName(),
+                              remoteServiceDescriptor.GetParticipantName());
+                SetDetailedBehavior(remoteServiceDescriptor);
             }
-        });
+        }
+        else
+        {
+            if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceRemoved
+                && IsRelevantNetwork(remoteServiceDescriptor))
+            {
+                Logging::Error(_logger,
+                               "The network simulator for controller '{}' left the simulation. FlexRay controllers "
+                               "require a running network simulator to operate.",
+                               _config.name);
+            }
+        }
+    });
 }
 
 auto FlexrayController::AllowReception(const IServiceEndpoint* from) const -> bool
 {
     const auto& fromDescr = from->GetServiceDescriptor();
-    return _simulatedLinkDetected &&
-           _simulatedLink.GetParticipantName() == fromDescr.GetParticipantName()
+    return _simulatedLinkDetected && _simulatedLink.GetParticipantName() == fromDescr.GetParticipantName()
            && _serviceDescriptor.GetServiceId() == fromDescr.GetServiceId();
 }
 
@@ -140,14 +155,17 @@ void FlexrayController::ReconfigureTxBuffer(uint16_t txBufferIdx, const FlexrayT
 {
     if (txBufferIdx >= _bufferConfigs.size())
     {
-        Logging::Error(_participant->GetLogger(), "FlexrayController::ReconfigureTxBuffer() was called with unconfigured txBufferIdx={}", txBufferIdx);
+        Logging::Error(_participant->GetLogger(),
+                       "FlexrayController::ReconfigureTxBuffer() was called with unconfigured txBufferIdx={}",
+                       txBufferIdx);
         throw OutOfRangeError{"Unconfigured txBufferIdx!"};
     }
 
     if (!IsTxBufferConfigsConfigurable())
     {
-        Logging::Error(_participant->GetLogger(), "ReconfigureTxBuffer() was called on a preconfigured txBuffer. This is not "
-                                        "allowed and the reconfiguration will be discarded.");
+        Logging::Error(_participant->GetLogger(),
+                       "ReconfigureTxBuffer() was called on a preconfigured txBuffer. This is not "
+                       "allowed and the reconfiguration will be discarded.");
         return;
     }
 
@@ -161,7 +179,9 @@ void FlexrayController::UpdateTxBuffer(const FlexrayTxBufferUpdate& update)
 {
     if (update.txBufferIndex >= _bufferConfigs.size())
     {
-        Logging::Error(_participant->GetLogger(), "FlexrayController::UpdateTxBuffer() was called with unconfigured txBufferIndex={}", update.txBufferIndex);
+        Logging::Error(_participant->GetLogger(),
+                       "FlexrayController::UpdateTxBuffer() was called with unconfigured txBufferIndex={}",
+                       update.txBufferIndex);
         throw OutOfRangeError{"Unconfigured txBufferIndex!"};
     }
 
@@ -175,16 +195,16 @@ void FlexrayController::UpdateTxBuffer(const FlexrayTxBufferUpdate& update)
             if (update.payload.size() > maxLength)
             {
                 Logging::Warn(_participant->GetLogger(),
-                    "FlexrayController::UpdateTxBuffer() was called with FlexRayTxBufferUpdate.payload size"
-                    " exceeding 2*gPayloadLengthStatic ({}). The payload will be truncated.",
-                    maxLength);
+                              "FlexrayController::UpdateTxBuffer() was called with FlexRayTxBufferUpdate.payload size"
+                              " exceeding 2*gPayloadLengthStatic ({}). The payload will be truncated.",
+                              maxLength);
             }
             if (update.payload.size() < maxLength)
             {
                 Logging::Warn(_participant->GetLogger(),
-                    "FlexrayController::UpdateTxBuffer() was called with FlexRayTxBufferUpdate.payload size"
-                    " lower than 2*gPayloadLengthStatic ({}). The payload will be zero padded.",
-                    maxLength);
+                              "FlexrayController::UpdateTxBuffer() was called with FlexRayTxBufferUpdate.payload size"
+                              " lower than 2*gPayloadLengthStatic ({}). The payload will be zero padded.",
+                              maxLength);
             }
         }
     }
@@ -349,7 +369,7 @@ void FlexrayController::RemoveFrameTransmitHandler(HandlerId handlerId)
 {
     if (!RemoveHandler<FlexrayFrameTransmitEvent>(handlerId))
     {
-        Logging::Warn(_participant->GetLogger(),"RemoveFrameTransmitHandler failed: Unknown HandlerId.");
+        Logging::Warn(_participant->GetLogger(), "RemoveFrameTransmitHandler failed: Unknown HandlerId.");
     }
 }
 

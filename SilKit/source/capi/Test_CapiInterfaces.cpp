@@ -32,15 +32,15 @@ namespace {
 
 TEST(Test_CapiInterfaces, compile_test_capi_interface_ids)
 {
-	constexpr const auto foo = SilKit_CanStateChangeEvent_STRUCT_VERSION;
+    constexpr const auto foo = SilKit_CanStateChangeEvent_STRUCT_VERSION;
     static_assert(SK_ID_GET_SERVICE(foo) == SK_ID_SERVICE_Can, "service id extraction");
-	static_assert(SK_ID_GET_DATATYPE(foo) == SilKit_CanStateChangeEvent_DATATYPE_ID, "datatype id extraction");
-	static_assert(SK_ID_GET_VERSION(foo) == SilKit_CanStateChangeEvent_VERSION, "datatype version extraction");
-	ASSERT_TRUE(SK_ID_IS_VALID(foo));
+    static_assert(SK_ID_GET_DATATYPE(foo) == SilKit_CanStateChangeEvent_DATATYPE_ID, "datatype id extraction");
+    static_assert(SK_ID_GET_VERSION(foo) == SilKit_CanStateChangeEvent_VERSION, "datatype version extraction");
+    ASSERT_TRUE(SK_ID_IS_VALID(foo));
 }
 
 // Generate this table by script, to verify that there are no copy-pastos.
-constexpr uint64_t allSilkidIds[]= {
+constexpr uint64_t allSilkidIds[] = {
     SilKit_CanFrame_STRUCT_VERSION,
     SilKit_CanFrameTransmitEvent_STRUCT_VERSION,
     SilKit_CanFrameEvent_STRUCT_VERSION,
@@ -79,6 +79,29 @@ constexpr uint64_t allSilkidIds[]= {
     SilKit_RpcCallResultEvent_STRUCT_VERSION,
     SilKit_ParticipantStatus_STRUCT_VERSION,
     SilKit_LifecycleConfiguration_STRUCT_VERSION,
+    SilKit_WorkflowConfiguration_STRUCT_VERSION,
+    SilKit_ParticipantConnectionInformation_STRUCT_VERSION,
+    SilKit_Experimental_EventReceivers_STRUCT_VERSION,
+    SilKit_Experimental_SimulatedNetworkFunctions_STRUCT_VERSION,
+    SilKit_Experimental_SimulatedCanControllerFunctions_STRUCT_VERSION,
+    SilKit_Experimental_SimulatedFlexRayControllerFunctions_STRUCT_VERSION,
+    SilKit_Experimental_SimulatedEthernetControllerFunctions_STRUCT_VERSION,
+    SilKit_Experimental_SimulatedLinControllerFunctions_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_CanConfigureBaudrate_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_CanControllerMode_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_CanFrameRequest_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_FlexrayControllerConfig_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_FlexrayHostCommand_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_FlexrayTxBufferConfigUpdate_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_FlexrayTxBufferUpdate_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_EthernetFrameRequest_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_EthernetControllerMode_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinFrameRequest_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinFrameHeaderRequest_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinWakeupPulse_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinControllerConfig_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinFrameResponseUpdate_STRUCT_VERSION,
+    SilKit_Experimental_NetSim_LinControllerStatusUpdate_STRUCT_VERSION,
 };
 constexpr auto allSilkidIdsSize = sizeof(allSilkidIds) / sizeof(uint64_t);
 
@@ -103,4 +126,4 @@ TEST(Test_CapiInterfaces, silkit_struct_init_zeros_whole_structure)
     EXPECT_EQ(value.userContext, nullptr);
 }
 
-}//namespace
+} //namespace

@@ -32,7 +32,7 @@ namespace Services {
 namespace Ethernet {
 
 EthController::EthController(Core::IParticipantInternal* participant, Config::EthernetController config,
-                               Services::Orchestration::ITimeProvider* timeProvider)
+                             Services::Orchestration::ITimeProvider* timeProvider)
     : _participant(participant)
     , _config{std::move(config)}
     , _simulationBehavior{participant, this, timeProvider}
@@ -49,33 +49,42 @@ EthController::EthController(Core::IParticipantInternal* participant, Config::Et
 void EthController::RegisterServiceDiscovery()
 {
     Core::Discovery::IServiceDiscovery* disc = _participant->GetServiceDiscovery();
-    disc->RegisterServiceDiscoveryHandler(
-        [this](Core::Discovery::ServiceDiscoveryEvent::Type discoveryType,
-                                  const Core::ServiceDescriptor& remoteServiceDescriptor) {
-            if (_simulationBehavior.IsTrivial())
+    disc->RegisterServiceDiscoveryHandler([this](Core::Discovery::ServiceDiscoveryEvent::Type discoveryType,
+                                                 const Core::ServiceDescriptor& remoteServiceDescriptor) {
+        if (_simulationBehavior.IsTrivial())
+        {
+            // Check if received descriptor has a matching simulated link
+            if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceCreated
+                && IsRelevantNetwork(remoteServiceDescriptor))
             {
-                // Check if received descriptor has a matching simulated link
-                if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceCreated
-                    && IsRelevantNetwork(remoteServiceDescriptor))
-                {
-                    SetDetailedBehavior(remoteServiceDescriptor);
-                }
+                Logging::Info(_logger,
+                              "Controller '{}' is using the simulated network '{}' and will route all messages to "
+                              "the network simulator '{}'",
+                              _config.name, remoteServiceDescriptor.GetNetworkName(),
+                              remoteServiceDescriptor.GetParticipantName());
+                SetDetailedBehavior(remoteServiceDescriptor);
             }
-            else
+        }
+        else
+        {
+            if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceRemoved
+                && IsRelevantNetwork(remoteServiceDescriptor))
             {
-                if (discoveryType == Core::Discovery::ServiceDiscoveryEvent::Type::ServiceRemoved
-                    && IsRelevantNetwork(remoteServiceDescriptor))
-                {
-                    SetTrivialBehavior();
-                }
+                Logging::Warn(_logger,
+                              "The network simulator for controller '{}' left the simulation. The controller is no "
+                              "longer simulated.",
+                              _config.name);
+                SetTrivialBehavior();
             }
-        });
+        }
+    });
 }
 
 void EthController::SetDetailedBehavior(const Core::ServiceDescriptor& remoteServiceDescriptor)
 {
     _simulationBehavior.SetDetailedBehavior(remoteServiceDescriptor);
 }
+
 void EthController::SetTrivialBehavior()
 {
     _simulationBehavior.SetTrivialBehavior();
@@ -114,7 +123,7 @@ void EthController::Activate()
     if (_ethState != EthernetState::Inactive)
         return;
 
-    EthernetSetMode msg { EthernetMode::Active };
+    EthernetSetMode msg{EthernetMode::Active};
     SendMsg(msg);
 }
 
@@ -124,7 +133,7 @@ void EthController::Deactivate()
     if (_ethState == EthernetState::Inactive)
         return;
 
-    EthernetSetMode msg{ EthernetMode::Inactive };
+    EthernetSetMode msg{EthernetMode::Inactive};
     SendMsg(msg);
 }
 
@@ -132,8 +141,8 @@ void EthController::SendFrame(EthernetFrame frame, void* userContext)
 {
     if (Tracing::IsReplayEnabledFor(_config.replay, Config::Replay::Direction::Send))
     {
-        Logging::Debug(_logger, _logOnce,
-            "EthController: Ignoring SendFrame API call due to Replay config on {}", _config.name);
+        Logging::Debug(_logger, _logOnce, "EthController: Ignoring SendFrame API call due to Replay config on {}",
+                       _config.name);
         return;
     }
     return SendFrameInternal(frame, userContext);
@@ -145,7 +154,7 @@ void EthController::SendFrameInternal(EthernetFrame frame, void* userContext)
     msg.userContext = userContext;
     msg.timestamp = _timeProvider->Now();
 
-    _tracer.Trace(Services::TransmitDirection::TX,msg.timestamp, frame);
+    _tracer.Trace(Services::TransmitDirection::TX, msg.timestamp, frame);
     SendMsg(std::move(msg));
 }
 
@@ -161,8 +170,8 @@ void EthController::ReceiveMsg(const IServiceEndpoint* from, const WireEthernetF
     }
     if (Tracing::IsReplayEnabledFor(_config.replay, Config::Replay::Direction::Receive))
     {
-        Logging::Debug(_logger, _logOnce,
-            "EthController: Ignoring ReceiveMsg API call due to Replay config on {}", _config.name);
+        Logging::Debug(_logger, _logOnce, "EthController: Ignoring ReceiveMsg API call due to Replay config on {}",
+                       _config.name);
         return;
     }
     return ReceiveMsgInternal(from, msg);
@@ -233,13 +242,13 @@ void EthController::ReceiveMsg(const IServiceEndpoint* from, const EthernetStatu
     if (msg.bitrate != _ethBitRate)
     {
         _ethBitRate = msg.bitrate;
-        CallHandlers(EthernetBitrateChangeEvent{ msg.timestamp, msg.bitrate });
+        CallHandlers(EthernetBitrateChangeEvent{msg.timestamp, msg.bitrate});
     }
 
     if (msg.state != _ethState)
     {
         _ethState = msg.state;
-        CallHandlers(EthernetStateChangeEvent{ msg.timestamp, msg.state });
+        CallHandlers(EthernetStateChangeEvent{msg.timestamp, msg.state});
     }
 }
 
@@ -307,16 +316,17 @@ void EthController::RemoveFrameHandler(HandlerId handlerId)
     }
 }
 
-HandlerId EthController::AddFrameTransmitHandler(FrameTransmitHandler handler, EthernetTransmitStatusMask transmitStatusMask)
+HandlerId EthController::AddFrameTransmitHandler(FrameTransmitHandler handler,
+                                                 EthernetTransmitStatusMask transmitStatusMask)
 {
     return AddHandler(FrameTransmitHandler{
         [handler = std::move(handler), transmitStatusMask](
             IEthernetController* controller, const EthernetFrameTransmitEvent& ethernetFrameTransmitEvent) {
-            if (static_cast<EthernetTransmitStatusMask>(ethernetFrameTransmitEvent.status) & transmitStatusMask)
-            {
-                handler(controller, ethernetFrameTransmitEvent);
-            }
-        }});
+        if (static_cast<EthernetTransmitStatusMask>(ethernetFrameTransmitEvent.status) & transmitStatusMask)
+        {
+            handler(controller, ethernetFrameTransmitEvent);
+        }
+    }});
 }
 
 void EthController::RemoveFrameTransmitHandler(HandlerId handlerId)

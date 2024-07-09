@@ -27,6 +27,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <fstream>
+
 namespace {
 
 class Test_YamlValidator : public testing::Test
@@ -135,7 +137,7 @@ Logging:
     YamlValidator validator;
     bool yamlValid = validator.Validate(yamlString, warnings);
     EXPECT_FALSE(yamlValid) << "YamlValidator warnings: " << warnings.str();
-    std::cout << "YamlValidator warnings: " << warnings.str() <<std::endl;
+    std::cout << "YamlValidator warnings: " << warnings.str() << std::endl;
     EXPECT_TRUE(warnings.str().size() > 0);
 }
 

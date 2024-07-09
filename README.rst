@@ -1,21 +1,23 @@
 ================================
 The Vector SIL Kit
 ================================
-.. image:: https://img.shields.io/github/v/release/vectorgrp/sil-kit.svg
+.. |ReleaseBadge| image:: https://img.shields.io/github/v/release/vectorgrp/sil-kit.svg
    :target: https://github.com/vectorgrp/sil-kit/releases
-.. image:: https://img.shields.io/badge/license-MIT-blue.svg
+.. |LicenseBadge| image:: https://img.shields.io/badge/license-MIT-blue.svg
    :target: https://github.com/vectorgrp/sil-kit/blob/main/LICENSE
-.. image:: https://img.shields.io/badge/documentation-html-blue.svg
+.. |DocsBadge| image:: https://img.shields.io/badge/documentation-html-blue.svg
    :target: https://vectorgrp.github.io/sil-kit-docs
 
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-asan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-ubsan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml/badge.svg
-   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-linux-tsan.yml
-.. image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml/badge.svg
+.. |AsanBadge| image:: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-asan.yml/badge.svg
+   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-asan.yml
+.. |UbsanBadge| image:: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-ubsan.yml/badge.svg
+   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-ubsan.yml
+.. |TsanBadge| image:: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-tsan.yml/badge.svg
+   :target: https://github.com/vectorgrp/sil-kit/actions/workflows/linux-tsan.yml
+.. |WinBadge| image:: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml/badge.svg
    :target: https://github.com/vectorgrp/sil-kit/actions/workflows/build-win.yml
+| |ReleaseBadge| |LicenseBadge| |DocsBadge| 
+| |AsanBadge| |UbsanBadge| |TsanBadge| |WinBadge| 
 
 The Vector SIL Kit is an open-source library for connecting Software-in-the-Loop Environments.
 This README is intended to provide you with quick start on how to build the Vector SIL Kit.
@@ -47,6 +49,9 @@ The SIL Kit ecosystem comprises the following turn-key solutions:
 
 * The `SIL Kit FMU Importer <https://github.com/vectorgrp/sil-kit-fmu-importer>`_
   allows to import Functional Mockup Units (FMUs) as SIL Kit participants.
+
+* The `Vector SIL Kit Adapter for Generic Linux IO <https://github.com/vectorgrp/sil-kit-adapters-generic-linux-io>`_
+  allows to attach SIL Kit to a generic Linux IO device, such as character devices or GPIOs.
 
 Related Applications
 --------------------

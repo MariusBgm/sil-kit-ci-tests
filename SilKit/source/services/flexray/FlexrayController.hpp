@@ -125,7 +125,7 @@ public:
 
     // IServiceEndpoint
     inline void SetServiceDescriptor(const Core::ServiceDescriptor& serviceDescriptor) override;
-    inline auto GetServiceDescriptor() const -> const Core::ServiceDescriptor & override;
+    inline auto GetServiceDescriptor() const -> const Core::ServiceDescriptor& override;
 
 public:
     // ----------------------------------------
@@ -150,7 +150,7 @@ private:
     template <typename MsgT>
     void CallHandlers(const MsgT& msg);
 
-    template<typename MsgT>
+    template <typename MsgT>
     inline void SendMsg(MsgT&& msg);
 
     // Check, which config parameters are configurable
@@ -169,22 +169,17 @@ private:
     ::SilKit::Core::ServiceDescriptor _serviceDescriptor;
     std::vector<FlexrayTxBufferConfig> _bufferConfigs;
     Tracer _tracer;
-
+    Services::Logging::ILogger* _logger;
     bool _simulatedLinkDetected = false;
     Core::ServiceDescriptor _simulatedLink;
 
     template <typename MsgT>
     using CallbacksT = Util::SynchronizedHandlers<CallbackT<MsgT>>;
 
-    std::tuple<
-        CallbacksT<FlexrayFrameEvent>,
-        CallbacksT<FlexrayFrameTransmitEvent>,
-        CallbacksT<FlexraySymbolEvent>,
-        CallbacksT<FlexraySymbolTransmitEvent>,
-        CallbacksT<FlexrayCycleStartEvent>,
-        CallbacksT<FlexrayPocStatusEvent>,
-        CallbacksT<FlexrayWakeupEvent>
-    > _callbacks;
+    std::tuple<CallbacksT<FlexrayFrameEvent>, CallbacksT<FlexrayFrameTransmitEvent>, CallbacksT<FlexraySymbolEvent>,
+               CallbacksT<FlexraySymbolTransmitEvent>, CallbacksT<FlexrayCycleStartEvent>,
+               CallbacksT<FlexrayPocStatusEvent>, CallbacksT<FlexrayWakeupEvent>>
+        _callbacks;
 };
 
 // ==================================================================

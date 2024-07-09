@@ -60,6 +60,11 @@ public:
         return !_entries.empty();
     }
 
+    void Clear()
+    {
+        _entries.clear();
+    }
+
     auto Size() -> size_t
     {
         return _entries.size();
@@ -113,7 +118,16 @@ public:
         return _handlers.InvokeAll(std::forward<T>(t)...);
     }
 
-    auto Size() -> size_t { return _handlers.Size(); }
+    void Clear()
+    {
+        const auto lock = MakeUniqueLock();
+        _handlers.Clear();
+    }
+
+    auto Size() -> size_t
+    {
+        return _handlers.Size();
+    }
 
 public:
     friend void swap(SynchronizedHandlers &a, SynchronizedHandlers &b) noexcept
@@ -133,7 +147,10 @@ public:
     }
 
 private:
-    auto MakeUniqueLock() const -> std::unique_lock<Mutex> { return std::unique_lock<Mutex>{_mutex}; }
+    auto MakeUniqueLock() const -> std::unique_lock<Mutex>
+    {
+        return std::unique_lock<Mutex>{_mutex};
+    }
 
     auto MakeDeferredLock() const -> std::unique_lock<Mutex>
     {

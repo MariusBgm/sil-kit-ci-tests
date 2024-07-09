@@ -73,8 +73,7 @@ public:
     auto CreateTimeSyncService() -> ITimeSyncService* override;
     auto GetTimeSyncService() -> ITimeSyncService*;
 
-    auto StartLifecycle()
-        -> std::future<ParticipantState> override;
+    auto StartLifecycle() -> std::future<ParticipantState> override;
 
     void ReportError(std::string errorMsg) override;
 
@@ -119,7 +118,7 @@ public:
     void SetLifecycleConfiguration(LifecycleConfiguration startConfiguration);
     void SetWorkflowConfiguration(const WorkflowConfiguration& msg);
 
-    void SetAsyncSubscriptionsCompletionHandler(std::function<void()> handler);
+    void AddAsyncSubscriptionsCompletionHandler(std::function<void()> handler);
     OperationMode GetOperationMode() const;
 
     auto StopRequested() const -> bool;
@@ -160,7 +159,7 @@ private:
 
     std::atomic<bool> _isLifecycleStarted{false};
     std::atomic<bool> _abortedBeforeLifecycleStart{false};
-    
+
     LifecycleManagement _lifecycleManager;
     std::atomic<bool> _timeSyncActive{false};
 
@@ -195,7 +194,6 @@ private:
     // for immediate checks (e.g., not to send out the NextSimTask after a stopping in the SimTaskHandler).
     std::atomic<bool> _stopRequested{false};
     std::atomic<bool> _pauseRequested{false};
-    
 };
 
 // ================================================================================

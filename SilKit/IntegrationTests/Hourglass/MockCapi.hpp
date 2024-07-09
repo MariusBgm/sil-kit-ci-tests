@@ -422,6 +422,10 @@ public:
                 (SilKit_ParticipantConfiguration * *outParticipantConfiguration,
                  const char* participantConfigurationString));
 
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_ParticipantConfiguration_FromFile,
+                (SilKit_ParticipantConfiguration * *outParticipantConfiguration,
+                 const char* participantConfigurationFilename));
+
     MOCK_METHOD(SilKit_ReturnCode, SilKit_ParticipantConfiguration_Destroy,
                 (SilKit_ParticipantConfiguration * participantConfiguration));
 
@@ -471,9 +475,9 @@ public:
     MOCK_METHOD(SilKit_ReturnCode, SilKit_RpcClient_Call,
                 (SilKit_RpcClient * self, const SilKit_ByteVector* argumentData, void* userContext));
 
-    MOCK_METHOD( SilKit_ReturnCode, SilKit_RpcClient_CallWithTimeout,(SilKit_RpcClient* self,
-                                                                  const SilKit_ByteVector* argumentData,
-                                                                  SilKit_NanosecondsTime timeout, void* userContext));
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_RpcClient_CallWithTimeout,
+                (SilKit_RpcClient * self, const SilKit_ByteVector* argumentData, SilKit_NanosecondsTime timeout,
+                 void* userContext));
 
     MOCK_METHOD(SilKit_ReturnCode, SilKit_RpcClient_SetCallResultHandler,
                 (SilKit_RpcClient * self, void* context, SilKit_RpcCallResultHandler_t handler));
@@ -512,6 +516,43 @@ public:
     MOCK_METHOD(SilKit_ReturnCode, SilKit_Version_VersionSuffix, (const char** outVersionVersionSuffix));
 
     MOCK_METHOD(SilKit_ReturnCode, SilKit_Version_GitHash, (const char** outVersionGitHash));
+
+
+    // NetworkSimulator
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_NetworkSimulator_Create,
+                (SilKit_Experimental_NetworkSimulator * *outNetworkSimulator, SilKit_Participant* participant));
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_NetworkSimulator_Start,
+                (SilKit_Experimental_NetworkSimulator * networkSimulator));
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_NetworkSimulator_SimulateNetwork,
+                (SilKit_Experimental_NetworkSimulator * networkSimulator, const char* networkName,
+                 SilKit_Experimental_SimulatedNetworkType networkType, void* simulatedNetwork,
+                 const SilKit_Experimental_SimulatedNetworkFunctions* simulatedNetworkFunctions));
+
+    // CanEventProducer
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_CanEventProducer_Produce,
+                (SilKit_Experimental_CanEventProducer * eventProducer, SilKit_StructHeader* cEvent,
+                 const SilKit_Experimental_EventReceivers* receivers));
+
+    // FlexRayEventProducer
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_FlexRayEventProducer_Produce,
+                (SilKit_Experimental_FlexRayEventProducer * eventProducer, SilKit_StructHeader* cEvent,
+                 const SilKit_Experimental_EventReceivers* receivers));
+
+    // EthEventProducer
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_EthernetEventProducer_Produce,
+                (SilKit_Experimental_EthernetEventProducer * eventProducer, SilKit_StructHeader* cEvent,
+                 const SilKit_Experimental_EventReceivers* receivers));
+    // LinEventProducer
+
+    MOCK_METHOD(SilKit_ReturnCode, SilKit_Experimental_LinEventProducer_Produce,
+                (SilKit_Experimental_LinEventProducer * eventProducer, SilKit_StructHeader* cEvent,
+                 const SilKit_Experimental_EventReceivers* receivers));
 };
 
 } // namespace SilKitHourglassTests

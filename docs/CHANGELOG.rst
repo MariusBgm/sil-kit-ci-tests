@@ -6,8 +6,83 @@ All notable changes to the Vector SIL Kit project shall be documented in this fi
 
 The format is based on `Keep a Changelog (http://keepachangelog.com/en/1.0.0/) <http://keepachangelog.com/en/1.0.0/>`_.
 
+[4.0.51] - UNRELEASED
+---------------------
 
-[4.0.46] - UNRELEASED
+Added
+~~~~~
+
+- Network Simulation event flow documentation 
+
+
+[4.0.50] - 2024-05-15
+---------------------
+
+This is a Quality Assured Release.
+
+Fixed
+~~~~~
+
+- Fixed crash in ``sil-kit-system-controller`` utility.
+- Fixed source directory contents in ``.zip`` release archives.
+
+
+[4.0.49] - 2024-05-08
+---------------------
+
+Changed
+~~~~~~~
+
+- SystemController utility: 
+  Listens for OS signals to end simulation: Press ``[Ctrl]-[C]`` (SigInt) instead of ``[Enter]`` to end simulation.
+  Better reports about the current system state in case of Error.
+
+Fixed
+~~~~~
+
+- Valid state transition from ``Aborting`` to ``Shutdown`` no longer emits a warning message.
+
+Added
+~~~~~
+
+- Participant Configuration: Support include semantics in participant configuration files/strings.
+- Network Simulation: Experimental API for custom simulation of CAN, LIN, Ethernet and FlexRay networks.
+
+
+[4.0.48] - 2024-04-15
+---------------------
+
+Changed
+~~~~~~~
+
+- We now use a linker script to limit the exported symbol visibility to the public C API and some legacy C++ symbols. 
+- The ``--enable-dashboard`` CLI parameter for the registry is now a no-op. It is now activated when using ``--dashboard-uri`` or via the registry configuration. 
+
+Fixed
+~~~~~
+
+- Fix MinGW build.
+- Various fixes for dashboard integration.
+
+Added
+~~~~~
+
+- Man pages for linux.
+- All public struct members are now included by default in the documentation.
+
+
+[4.0.47] - 2024-03-01
+---------------------
+
+Fixed
+~~~~~
+
+- Fixed building from the packaged sources (``SilKit-Source``).
+
+- LIN Demo: Removed duplicate call to StartLifecyle when run as the LIN slave
+
+
+[4.0.46] - 2024-02-27
 ---------------------
 
 Fixed
@@ -29,6 +104,7 @@ Added
 
 - Utilities: prepare the registry for handling multiple simulations
 
+- Added a licensecheck to prevent source files without a license header
 
 [4.0.45] - 2024-02-06
 ---------------------

@@ -67,6 +67,11 @@ void SimParticipant::Stop()
     GetOrCreateLifecycleService()->Stop("Stop");
 }
 
+void SimParticipant::Disconnect()
+{
+    _participant.reset();
+}
+
 auto SimParticipant::GetOrCreateSystemMonitor() -> Services::Orchestration::ISystemMonitor*
 {
     if (!_systemMonitor)
@@ -85,9 +90,8 @@ auto SimParticipant::GetOrCreateSystemController() -> Experimental::Services::Or
     return _systemController;
 }
 
-auto SimParticipant::GetOrCreateLifecycleService(
-    SilKit::Services::Orchestration::LifecycleConfiguration startConfiguration)
-    -> Services::Orchestration::ILifecycleService*
+auto SimParticipant::GetOrCreateLifecycleService(SilKit::Services::Orchestration::LifecycleConfiguration
+                                                     startConfiguration) -> Services::Orchestration::ILifecycleService*
 {
     if (!_lifecycleService)
     {
@@ -105,7 +109,16 @@ auto SimParticipant::GetOrCreateTimeSyncService() -> Services::Orchestration::IT
     return _timeSyncService;
 }
 
-auto SimParticipant::GetOrGetLogger() -> Services::Logging::ILogger*
+auto SimParticipant::GetOrCreateNetworkSimulator() -> Experimental::NetworkSimulation::INetworkSimulator*
+{
+    if (!_networkSimulator)
+    {
+        _networkSimulator = SilKit::Experimental::Participant::CreateNetworkSimulator(_participant.get());
+    }
+    return _networkSimulator;
+}
+
+auto SimParticipant::GetLogger() -> Services::Logging::ILogger*
 {
     if (!_logger)
     {
@@ -178,6 +191,11 @@ void SimTestHarness::CreateSystemController()
 
 bool SimTestHarness::Run(std::chrono::nanoseconds testRunTimeout)
 {
+    return Run(testRunTimeout, {});
+}
+
+bool SimTestHarness::Run(std::chrono::nanoseconds testRunTimeout, const std::vector<std::string>& keepAlive)
+{
     auto lock = Lock();
     std::promise<void> simulationFinishedPromise;
     auto simulationFinishedFuture = simulationFinishedPromise.get_future();
@@ -210,6 +228,12 @@ bool SimTestHarness::Run(std::chrono::nanoseconds testRunTimeout)
     //C++17: for (auto& [name, participant] : _simParticipants)
     for (auto& kv : _simParticipants)
     {
+        if (std::find(keepAlive.begin(), keepAlive.end(), kv.first) != keepAlive.end())
+        {
+            // Ignore waiting for participants in keepAlive list
+            continue;
+        }
+
         auto& participant = kv.second;
         if (noTimeout)
         {
@@ -296,14 +320,10 @@ void SimTestHarness::AddParticipant(const std::string& participantName, const st
     if (startConfiguration.operationMode == SilKit::Services::Orchestration::OperationMode::Coordinated)
     {
         auto* timeSyncService = participant->GetOrCreateTimeSyncService();
-        timeSyncService->SetSimulationStepHandler(
-            [](auto, auto) {
-            },
-            1ms);
+        timeSyncService->SetSimulationStepHandler([](auto, auto) {}, 1ms);
     }
 
-    lifecycleService->SetCommunicationReadyHandler([]() {
-    });
+    lifecycleService->SetCommunicationReadyHandler([]() {});
 
     _simParticipants[participantName] = std::move(participant);
 }

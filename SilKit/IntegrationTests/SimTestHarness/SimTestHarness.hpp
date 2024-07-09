@@ -37,7 +37,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
 #include "silkit/experimental/services/orchestration/ISystemController.hpp"
 
-namespace SilKit { namespace Tests {
+namespace SilKit {
+namespace Tests {
 //forward
 class SimSystemController;
 
@@ -57,6 +58,7 @@ public:
     auto Participant() const -> SilKit::IParticipant*;
     auto Result() -> FutureResult&;
     void Stop();
+    void Disconnect();
 
     // Helpers to circumvent one-time-only orchestration service creation
     auto GetOrCreateSystemMonitor() -> Services::Orchestration::ISystemMonitor*;
@@ -65,7 +67,8 @@ public:
                                          {SilKit::Services::Orchestration::OperationMode::Coordinated})
         -> Services::Orchestration::ILifecycleService*;
     auto GetOrCreateTimeSyncService() -> Services::Orchestration::ITimeSyncService*;
-    auto GetOrGetLogger() -> Services::Logging::ILogger*;
+    auto GetOrCreateNetworkSimulator() -> Experimental::NetworkSimulation::INetworkSimulator*;
+    auto GetLogger() -> Services::Logging::ILogger*;
 
 private:
     std::string _name;
@@ -76,6 +79,7 @@ private:
     Experimental::Services::Orchestration::ISystemController* _systemController{nullptr};
     Services::Orchestration::ILifecycleService* _lifecycleService{nullptr};
     Services::Orchestration::ITimeSyncService* _timeSyncService{nullptr};
+    Experimental::NetworkSimulation::INetworkSimulator* _networkSimulator{nullptr};
     Services::Logging::ILogger* _logger{nullptr};
 
     friend class SimTestHarness;
@@ -94,7 +98,8 @@ struct SimTestHarnessArgs
     /// in the SimTestHarness constructor.
     bool deferSystemControllerCreation{false};
 
-    struct {
+    struct
+    {
         std::string participantConfiguration{""};
         std::string listenUri{"silkit://127.0.0.1:0"};
     } registry;
@@ -110,14 +115,18 @@ public:
     /// \deprecated Please use the single-argument constructor which takes a SimTestHarnessArgs object. Since the struct
     ///             fields are named when assigned, the resulting code should be much more readable.
     SimTestHarness(const std::vector<std::string>& syncParticipantNames, const std::string& registryUri,
-        bool deferParticipantCreation = false, bool deferSystemControllerCreation = false,
-        const std::vector<std::string>& asyncParticipantNames = std::vector<std::string>());
+                   bool deferParticipantCreation = false, bool deferSystemControllerCreation = false,
+                   const std::vector<std::string>& asyncParticipantNames = std::vector<std::string>());
 
     ~SimTestHarness();
 
     void CreateSystemController();
     //! \brief Run the simulation, return false if timeout is reached.
     bool Run(std::chrono::nanoseconds testRunTimeout = std::chrono::nanoseconds::min());
+    //! \brief Run the simulation for at most \p testRunTimeout and wait for all participants to shutdown, except the participants mentioned in \p keepAlive.
+    //! \return false if timeout is reached
+    bool Run(std::chrono::nanoseconds testRunTimeout, const std::vector<std::string>& keepAlive);
+
     //! \brief Get the SimParticipant by name
     SimParticipant* GetParticipant(const std::string& participantName);
     //! \brief Get the SimParticipant by name. If it does not exist yet, create a SimParticipant with the specified name and provide its ParticipantConfiguration as a string.
@@ -130,7 +139,8 @@ public:
 
 private:
     void AddParticipant(const std::string& participantName, const std::string& participantConfiguration,
-                        SilKit::Services::Orchestration::LifecycleConfiguration startConfiguration = {SilKit::Services::Orchestration::OperationMode::Coordinated});
+                        SilKit::Services::Orchestration::LifecycleConfiguration startConfiguration = {
+                            SilKit::Services::Orchestration::OperationMode::Coordinated});
     bool IsSync(const std::string& participantName);
     bool IsAsync(const std::string& participantName);
 
@@ -150,6 +160,5 @@ private:
 };
 
 
-
-} //end ns silkit
-} //end ns test
+} // namespace Tests
+} // namespace SilKit

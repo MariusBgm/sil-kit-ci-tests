@@ -23,9 +23,8 @@ using SilKit::Services::Orchestration::SystemState;
 auto ValidateParticipantStateUpdate(ParticipantState oldParticipantState, ParticipantState newParticipantState) -> bool
 {
     auto OldParticipantStateWas = [oldParticipantState](std::initializer_list<ParticipantState> stateList) {
-        return std::any_of(begin(stateList), end(stateList), [oldParticipantState](auto candidate) {
-            return candidate == oldParticipantState;
-        });
+        return std::any_of(begin(stateList), end(stateList),
+                           [oldParticipantState](auto candidate) { return candidate == oldParticipantState; });
     };
 
     switch (newParticipantState)
@@ -58,7 +57,7 @@ auto ValidateParticipantStateUpdate(ParticipantState oldParticipantState, Partic
         return OldParticipantStateWas({ParticipantState::Error, ParticipantState::Stopped});
 
     case ParticipantState::Shutdown:
-        return OldParticipantStateWas({ParticipantState::ShuttingDown});
+        return OldParticipantStateWas({ParticipantState::ShuttingDown, ParticipantState::Aborting});
 
     case ParticipantState::Aborting:
     case ParticipantState::Error:
@@ -148,11 +147,13 @@ auto SystemStateTracker::UpdateParticipantStatus(const ParticipantStatus& newPar
 
     if (!ValidateParticipantStateUpdate(oldParticipantState, newParticipantState))
     {
-        Log::Error(
-            _logger,
-            "SystemMonitor detected invalid ParticipantState transition from {} to {} EnterTime={}, EnterReason=\"{}\"",
-            oldParticipantState, newParticipantState, FormatTimePoint(newParticipantStatus.enterTime),
-            newParticipantStatus.enterReason);
+        const auto logLevel = IsRequiredParticipant(participantName) ? Log::Level::Warn : Log::Level::Debug;
+
+        Log::Log(_logger, logLevel,
+                 "SystemMonitor detected invalid ParticipantState transition for {} from {} to {} EnterTime={}, "
+                 "EnterReason=\"{}\"",
+                 participantName, oldParticipantState, newParticipantState,
+                 FormatTimePoint(newParticipantStatus.enterTime), newParticipantStatus.enterReason);
 
         // NB: Failing validation doesn't actually stop the participants state from being changed, it just logs the
         //     invalid transition
@@ -306,10 +307,9 @@ auto SystemStateTracker::ComputeSystemState(ParticipantState newParticipantState
 
             const auto requiredParticipantState{requiredParticipantStatus->state};
 
-            const bool accepted =
-                std::any_of(begin(stateList), end(stateList), [requiredParticipantState](auto candidate) {
-                    return candidate == requiredParticipantState;
-                });
+            const bool accepted = std::any_of(
+                begin(stateList), end(stateList),
+                [requiredParticipantState](auto candidate) { return candidate == requiredParticipantState; });
 
             if (!accepted)
             {

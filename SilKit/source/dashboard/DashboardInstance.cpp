@@ -54,6 +54,11 @@ DashboardInstance::DashboardInstance()
 
 DashboardInstance::~DashboardInstance()
 {
+    if (_retryPolicy != nullptr)
+    {
+        _retryPolicy->AbortAllRetries();
+    }
+
     try
     {
         _eventQueueWorkerThreadAbort.set_value();
@@ -61,6 +66,11 @@ DashboardInstance::~DashboardInstance()
     catch (...)
     {
         // ignored
+    }
+
+    if (_silKitEventQueue != nullptr)
+    {
+        _silKitEventQueue->Stop();
     }
 
     if (_eventQueueWorkerThread.joinable())
@@ -83,10 +93,10 @@ void DashboardInstance::SetupDashboardConnection(std::string const &dashboardUri
 
     _objectMapper = OATPP_GET_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>);
 
-    auto retryPolicy = std::make_shared<SilKit::Dashboard::DashboardRetryPolicy>(3);
+    _retryPolicy = std::make_shared<SilKit::Dashboard::DashboardRetryPolicy>(3);
 
     OATPP_COMPONENT(std::shared_ptr<oatpp::network::ClientConnectionProvider>, connectionProvider);
-    auto requestExecutor = oatpp::web::client::HttpRequestExecutor::createShared(connectionProvider, retryPolicy);
+    auto requestExecutor = oatpp::web::client::HttpRequestExecutor::createShared(connectionProvider, _retryPolicy);
 
     _apiClient = SilKit::Dashboard::DashboardSystemApiClient::createShared(requestExecutor, _objectMapper);
     _silKitToOatppMapper = std::make_shared<SilKit::Dashboard::SilKitToOatppMapper>();
@@ -97,8 +107,6 @@ void DashboardInstance::SetupDashboardConnection(std::string const &dashboardUri
     _silKitEventHandler =
         std::make_shared<SilKit::Dashboard::SilKitEventHandler>(_logger, serviceClient, _silKitToOatppMapper);
     _silKitEventQueue = std::make_shared<SilKit::Dashboard::SilKitEventQueue>();
-
-    retryPolicy->AbortAllRetries(); // ???
 
     RunEventQueueWorkerThread();
 }
@@ -144,6 +152,13 @@ struct EventQueueWorkerThread
                     const auto &simulationStart = event.GetSimulationStart();
                     const auto simulationId =
                         eventHandler->OnSimulationStart(simulationStart.connectUri, simulationStart.time);
+
+                    if (simulationId == 0)
+                    {
+                        Log::Warn(logger, "Dashboard: Simulation {} could not be created", event.GetSimulationName());
+                        continue;
+                    }
+
                     simulationNameToId.emplace(event.GetSimulationName(), simulationId);
 
                     continue;
