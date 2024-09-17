@@ -51,7 +51,7 @@ jobs:
     name: Format checks for SIL Kit sources
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/mariusbgm/sil-kit-ci-clangformat-22.04:dev_clangformat_ubuntu
+      image: ghcr.io/vectorgrp/sil-kit-docker-build/sil-kit-ci-public-runner:main
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,8 +91,24 @@ jobs:
       retention_days: ${{ github.event_name == 'push' && 90 || 14 }}
       run_build: ${{ needs.check-run-builds.outputs.run_builds == 'true' }}
 
+  ubuntu-arm-release-builds:
+    uses: ./.github/workflows/build-linux-arm64.yml
+    needs: [check-licenses, check-run-builds, check-formatting]
+    with:
+      do_package: ${{ github.event_name == 'push' && true || false }}
+      retention_days: ${{ github.event_name == 'push' && 90 || 14 }}
+      run_build: ${{ needs.check-run-builds.outputs.run_builds == 'true' }}
+
   windows-release-builds:
     uses: ./.github/workflows/build-win.yml
+    needs: [check-licenses, check-run-builds, check-formatting]
+    with:
+      do_package: ${{ github.event_name == 'push' && true || false }}
+      retention_days: ${{ github.event_name == 'push' && 90 || 14 }}
+      run_build: ${{ needs.check-run-builds.outputs.run_builds == 'true' }}
+
+  mingw-release-builds:
+    uses: ./.github/workflows/build-mingw64.yml
     needs: [check-licenses, check-run-builds, check-formatting]
     with:
       do_package: ${{ github.event_name == 'push' && true || false }}
